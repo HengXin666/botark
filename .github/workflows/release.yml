@@ -59,6 +59,8 @@ jobs:
             target: --mac
           - os: windows-latest
             target: --win
+          - os: ubuntu-latest
+            target: --linux
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -69,6 +71,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - name: Install AppImage tooling
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfuse2t64 \
+            || sudo apt-get install -y --no-install-recommends libfuse2
       - name: Build and upload to the draft release
         shell: bash
         env:
@@ -113,7 +121,7 @@ jobs:
           assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
           echo "$assets"
           missing=0
-          for pattern in 'latest-mac\.yml' 'latest\.yml' 'arm64\.dmg$' 'x64\.dmg$' 'arm64\.zip$' 'x64\.zip$' '\.exe$'; do
+          for pattern in 'latest-mac\.yml' 'latest\.yml' 'latest-linux\.yml' 'arm64\.dmg$' 'x64\.dmg$' 'arm64\.zip$' 'x64\.zip$' '\.exe$' '\.AppImage$'; do
             if ! grep -Eq "$pattern" <<<"$assets"; then
               echo "::error::missing asset matching $pattern"
               missing=1

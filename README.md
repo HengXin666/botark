@@ -7,26 +7,29 @@
 **All your personal AI agents, in one native desktop workspace.**
 
 Stop juggling five separate apps and a dozen incognito browser profiles.<br />
-Run **Grok Bot**, **ChatGPT Dot**, **Meta Muse**, **Hark**, and open-source **Hermes** side by side on macOS & Windows.
+Run **Grok Bot**, **ChatGPT Dot**, **Meta Muse**, **Hark**, and open-source **Hermes** side by side on macOS, Windows & Linux.
 
 <p>
-  <a href="https://github.com/qybaihe/botark/releases/latest"><img src="https://img.shields.io/github/v/release/qybaihe/botark?style=flat-square&label=Release&color=2563eb" alt="Latest Release" /></a>
-  <a href="https://github.com/qybaihe/botark/releases/latest"><img src="https://img.shields.io/badge/macOS-Signed_%26_Notarized-16a34a?style=flat-square&logo=apple&logoColor=white" alt="Apple Signed & Notarized" /></a>
-  <a href="https://github.com/qybaihe/botark/releases/latest"><img src="https://img.shields.io/badge/Windows-10%2F11_x64-0078d4?style=flat-square&logo=windows&logoColor=white" alt="Windows 10/11" /></a>
-  <a href="https://github.com/qybaihe/botark/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/qybaihe/botark/ci.yml?branch=main&style=flat-square&label=CI" alt="CI Status" /></a>
+  <a href="https://github.com/HengXin666/botark/releases/latest"><img src="https://img.shields.io/github/v/release/HengXin666/botark?style=flat-square&label=Release&color=2563eb" alt="Latest Release" /></a>
+  <a href="https://github.com/HengXin666/botark/releases/latest"><img src="https://img.shields.io/badge/macOS-Signed_%26_Notarized-16a34a?style=flat-square&logo=apple&logoColor=white" alt="Apple Signed & Notarized" /></a>
+  <a href="https://github.com/HengXin666/botark/releases/latest"><img src="https://img.shields.io/badge/Windows-10%2F11_x64-0078d4?style=flat-square&logo=windows&logoColor=white" alt="Windows 10/11" /></a>
+  <a href="https://github.com/HengXin666/botark/releases/latest"><img src="https://img.shields.io/badge/Linux-x64_AppImage-FCC624?style=flat-square&logo=linux&logoColor=black" alt="Linux AppImage" /></a>
+  <a href="https://github.com/HengXin666/botark/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/HengXin666/botark/ci.yml?branch=main&style=flat-square&label=CI" alt="CI Status" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0ea5e9?style=flat-square" alt="MIT License" /></a>
 </p>
 
 <h4>
   <a href="https://qybaihe.github.io/botark/">🌐 Official Website</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/qybaihe/botark/releases/latest">🍎 Download for Mac (Apple Silicon)</a>
+  <a href="https://github.com/HengXin666/botark/releases/latest">🍎 Download for Mac (Apple Silicon)</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/qybaihe/botark/releases/latest">💻 Download for Mac (Intel)</a>
+  <a href="https://github.com/HengXin666/botark/releases/latest">💻 Download for Mac (Intel)</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/qybaihe/botark/releases/latest">🪟 Download for Windows</a>
+  <a href="https://github.com/HengXin666/botark/releases/latest">🪟 Download for Windows</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/qybaihe/botark/discussions">💬 Discussions</a>
+  <a href="https://github.com/HengXin666/botark/releases/latest">🐧 Download for Linux</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/HengXin666/botark/discussions">💬 Discussions</a>
 </h4>
 
 <sub>
@@ -164,7 +167,7 @@ Take all 5 platforms with you on **iPhone & Android** — **without deploying or
 - **AES-256-GCM Offline Sync Bundle (`.botark-sync`)**: Export an encrypted workspace snapshot from Desktop and transfer via AirDrop / Quick Share / USB when off the same Wi-Fi.
 - **Hermes Direct Mode (Works While Computer Is Asleep)**: Opt-in end-to-end AES-256-GCM credential handoff into iOS Keychain / Android Keystore lets your phone stream directly from remote Hermes instances even when your Mac/PC is offline.
 
-👉 **iOS (SwiftUI)**: [**`ios/BotArk/README.md`**](ios/BotArk/README.md) · **Android (Jetpack Compose + Direct APK)**: [**`android/BotArk/README.md`**](android/BotArk/README.md) & [**GitHub Releases**](https://github.com/qybaihe/botark/releases/latest)
+👉 **iOS (SwiftUI)**: [**`ios/BotArk/README.md`**](ios/BotArk/README.md) · **Android (Jetpack Compose + Direct APK)**: [**`android/BotArk/README.md`**](android/BotArk/README.md) & [**GitHub Releases**](https://github.com/HengXin666/botark/releases/latest)
 
 ---
 
@@ -172,13 +175,14 @@ Take all 5 platforms with you on **iPhone & Android** — **without deploying or
 
 ### 1. Install BotArk
 
-Download the latest installer from [**GitHub Releases**](https://github.com/qybaihe/botark/releases/latest):
+Download the latest installer from [**GitHub Releases**](https://github.com/HengXin666/botark/releases/latest):
 
 | Platform | Package | Notes |
 | :--- | :--- | :--- |
 | **macOS (Apple Silicon M1–M4)** | `BotArk-<version>-arm64.dmg` | ✅ **Apple Developer ID signed & notarized** — drag into `Applications` and open directly |
 | **macOS (Intel x64)** | `BotArk-<version>-x64.dmg` | ✅ **Apple Developer ID signed & notarized** — no Gatekeeper prompts |
 | **Windows 10 / 11 (64-bit)** | `BotArk-Setup-<version>-x64.exe` | One-click NSIS installer (preserves local data across upgrades) |
+| **Linux (x86_64)** | `BotArk-<version>-x86_64.AppImage` | Single-file AppImage — `chmod +x` and run; needs FUSE 2 or `--appimage-extract-and-run` |
 
 ### 2. Add Your First Agent
 
@@ -206,7 +210,7 @@ Download the latest installer from [**GitHub Releases**](https://github.com/qyba
 Requires **Node.js 22.19+** (Node 24 recommended; see [`.nvmrc`](.nvmrc)).
 
 ```bash
-git clone https://github.com/qybaihe/botark.git
+git clone https://github.com/HengXin666/botark.git
 cd botark
 npm ci
 npm run dev
@@ -219,6 +223,11 @@ npm run dev
 | `npm test` | Run the Vitest unit test suite |
 | `npm run build` | Build production bundles into `out/` |
 | `npm run dist:mac` / `npm run dist:win` | Package macOS `.dmg` + `.zip` or Windows `.exe` installers |
+| `npm run dist:linux` | Package a single-file Linux `.AppImage` into `release/` |
+
+### Linux notes
+
+The AppImage carries its own Electron runtime, so it runs on most x86_64 distributions with glibc 2.31+. It keeps Chromium's sandbox enabled through unprivileged user namespaces; on kernels with `kernel.unprivileged_userns_clone=0` launch with `--no-sandbox`. Wayland and X11 are auto-detected (`ELECTRON_OZONE_PLATFORM_HINT=x11` forces X11). Hardware video decoding is opt-in with `BOTARK_LINUX_VAAPI=1` because some proprietary drivers still crash on it.
 
 Interested in contributing or adding another agent platform? See [**CONTRIBUTING.md**](CONTRIBUTING.md) and the protocol notes in [**`docs/`**](docs/README.md).
 
@@ -260,17 +269,17 @@ Everything stays locally on your computer (`~/Library/Application Support/botark
 ## 🤝 Community & Acknowledgements
 
 - Built with support and feedback from the [**LINUX DO**](https://linux.do/) community — where builders share ideas openly, honestly, and generously.
-- Questions, workflow tips, or new agent platform requests? Join [**GitHub Discussions**](https://github.com/qybaihe/botark/discussions).
+- Questions, workflow tips, or new agent platform requests? Join [**GitHub Discussions**](https://github.com/HengXin666/botark/discussions).
 
 ---
 
 ## 📈 Star History
 
 <div align="center">
-  <a href="https://star-history.com/#qybaihe/botark&Date">
+  <a href="https://star-history.com/#HengXin666/botark&Date">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=qybaihe/botark&type=Date&theme=dark" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=qybaihe/botark&type=Date" width="100%" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=HengXin666/botark&type=Date&theme=dark" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=HengXin666/botark&type=Date" width="100%" />
     </picture>
   </a>
 </div>

@@ -19,8 +19,27 @@ import { applyAllStoredProxies } from './muse/accountProxy'
 import { hardenVaultFilePermissions, registerVaultIpc } from './securityVault'
 
 const isMac = process.platform === 'darwin'
+const isLinux = process.platform === 'linux'
 let mainWindow: BrowserWindow | null = null
 let quitting = false
+
+// Linux compositor/GPU tuning. Electron chooses X11/Wayland before this module
+// runs; use ELECTRON_OZONE_PLATFORM_HINT=x11|wayland to override it.
+if (isLinux) {
+  const waylandSession =
+    process.env['XDG_SESSION_TYPE'] === 'wayland' || Boolean(process.env['WAYLAND_DISPLAY'])
+  if (waylandSession) {
+    app.commandLine.appendSwitch('enable-wayland-ime')
+    app.commandLine.appendSwitch('wayland-text-input-version', '3')
+  }
+  // Rasterize on the GPU and avoid a CPU copy for full-screen surfaces.
+  app.commandLine.appendSwitch('enable-gpu-rasterization')
+  app.commandLine.appendSwitch('enable-zero-copy')
+  // Opt-in VA-API: safe on Mesa, but some proprietary drivers still crash.
+  if (process.env['BOTARK_LINUX_VAAPI'] === '1') {
+    app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,VaapiVideoEncoder')
+  }
+}
 
 // Seamless upgrade from legacy "bothub" userData directory: if an existing user
 // already has accounts/sessions in Application Support/bothub and no new botark

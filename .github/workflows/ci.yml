@@ -42,6 +42,9 @@ jobs:
           - os: windows-latest
             target: --win
             update_file: latest.yml
+          - os: ubuntu-latest
+            target: --linux
+            update_file: latest-linux.yml
     runs-on: ${{ matrix.os }}
     env:
       # No signing in CI checks; release.yml signs when secrets exist.
@@ -56,6 +59,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npx electron-vite build
+      - name: Install AppImage tooling
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfuse2t64 \
+            || sudo apt-get install -y --no-install-recommends libfuse2
       - name: Build installers (no publish)
         run: npx electron-builder --config electron-builder.config.cjs ${{ matrix.target }} --publish never
       - name: Check the auto-update manifest exists
@@ -72,5 +81,6 @@ jobs:
             release/*.dmg
             release/*.zip
             release/*.exe
+            release/*.AppImage
             release/*.blockmap
             release/latest*.yml

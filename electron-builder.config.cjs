@@ -22,6 +22,11 @@ const macArchs = cliArgs.has('--arm64')
   : cliArgs.has('--x64')
     ? ['x64']
     : ['arm64', 'x64']
+// Use the repository that triggered a CI release, so forks publish their own
+// AppImage/update manifests instead of trying to write to the upstream repo.
+const [publishOwner, publishRepo] = (
+  process.env.GITHUB_REPOSITORY || 'HengXin666/botark'
+).split('/')
 
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
@@ -65,6 +70,39 @@ module.exports = {
     icon: 'build/icon.png',
     artifactName: '${productName}-Setup-${version}-${arch}.${ext}'
   },
+  linux: {
+    target: [{ target: 'AppImage', arch: ['x64'] }],
+    icon: 'build/icon.png',
+    category: 'Utility;Development;',
+    synopsis: 'All your personal AI agents in one Linux desktop workspace',
+    description:
+      'BotArk brings Grok Bot, ChatGPT Dot, Meta Muse, Hark, Hermes and Google Antigravity into one native desktop workspace.',
+    maintainer: 'BotArk contributors',
+    executableName: 'botark',
+    // AppImage cannot ship a setuid chrome-sandbox. Keep Chromium's sandbox
+    // enabled and rely on unprivileged user namespaces; users on kernels that
+    // disable them can launch with --no-sandbox.
+    executableArgs: [],
+    syncDesktopName: true,
+    desktop: {
+      entry: {
+        Name: 'BotArk',
+        GenericName: 'AI Agent Workspace',
+        Comment: 'All your personal AI agents in one desktop workspace',
+        Categories: 'Utility;Development;',
+        Keywords: 'AI;agent;chat;Grok;ChatGPT;Muse;Hark;Hermes;Antigravity;',
+        StartupNotify: 'true',
+        StartupWMClass: 'botark'
+      }
+    },
+    artifactName: '${productName}-${version}-${arch}.${ext}'
+  },
+  appImage: {
+    artifactName: '${productName}-${version}-${arch}.${ext}',
+    // gzip decompresses faster than xz, so the first launch is quicker at the
+    // cost of a slightly larger single-file AppImage.
+    compression: 'gzip'
+  },
   nsis: {
     oneClick: false,
     perMachine: false,
@@ -75,8 +113,8 @@ module.exports = {
   publish: [
     {
       provider: 'github',
-      owner: 'qybaihe',
-      repo: 'botark',
+      owner: publishOwner,
+      repo: publishRepo,
       // CI creates the draft first and every platform job uploads into it,
       // then one final step publishes. No job ever creates the release, so
       // parallel uploads cannot race into a 422.

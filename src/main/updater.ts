@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { autoUpdater, type UpdateInfo } from 'electron-updater'
@@ -7,8 +7,26 @@ import { checkFailedMessage, interpretLatestRelease } from './updateCheck'
 import { inspectMacCodeSignature } from './securityVault'
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
-const GITHUB_OWNER = 'qybaihe'
-const GITHUB_REPO = 'botark'
+const FALLBACK_GITHUB_OWNER = 'HengXin666'
+const FALLBACK_GITHUB_REPO = 'botark'
+
+/**
+ * electron-builder writes app-update.yml into resources from the publish
+ * config. Read it back so fork builds query their own releases, not upstream.
+ */
+function bundledGithubRepo(): { owner: string; repo: string } {
+  try {
+    const yaml = readFileSync(join(process.resourcesPath, 'app-update.yml'), 'utf8')
+    const owner = yaml.match(/^owner:\s*['"]?([^'"\s]+)/m)?.[1]
+    const repo = yaml.match(/^repo:\s*['"]?([^'"\s]+)/m)?.[1]
+    if (owner && repo) return { owner, repo }
+  } catch {
+    /* unpacked/dev build: no manifest, use the upstream fallback */
+  }
+  return { owner: FALLBACK_GITHUB_OWNER, repo: FALLBACK_GITHUB_REPO }
+}
+
+const { owner: GITHUB_OWNER, repo: GITHUB_REPO } = bundledGithubRepo()
 const RELEASES_LATEST = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
 const GITHUB_API_LATEST = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
 

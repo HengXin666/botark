@@ -6,6 +6,7 @@
   "main": "./out/main/index.js",
   "author": "qybaihe",
   "license": "MIT",
+  "desktopName": "botark.desktop",
   "engines": {
     "node": ">=22.19.0"
   },
@@ -25,6 +26,8 @@
     "dist": "npm run build && electron-builder --config electron-builder.config.cjs",
     "dist:mac": "npm run build && electron-builder --config electron-builder.config.cjs --mac",
     "dist:win": "npm run build && electron-builder --config electron-builder.config.cjs --win",
+    "dist:linux": "npm run build && electron-builder --config electron-builder.config.cjs --linux",
+    "dist:linux:dir": "npm run build && electron-builder --config electron-builder.config.cjs --linux --dir",
     "dist:dir": "npm run build && electron-builder --config electron-builder.config.cjs --mac --arm64 --dir",
     "release": "npm run build && electron-builder --config electron-builder.config.cjs --publish always"
   },
@@ -63,10 +66,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/qybaihe/botark.git"
+    "url": "https://github.com/HengXin666/botark.git"
   },
-  "homepage": "https://github.com/qybaihe/botark",
+  "homepage": "https://github.com/HengXin666/botark",
   "bugs": {
-    "url": "https://github.com/qybaihe/botark/issues"
+    "url": "https://github.com/HengXin666/botark/issues"
   }
 }
