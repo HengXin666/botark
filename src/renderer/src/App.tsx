@@ -14,6 +14,7 @@ import { startMobileSyncBridge } from '@/services/mobileSyncBridge'
 import { useBotStore } from '@/store/botStore'
 import { startPrefsSync, usePrefsStore } from '@/store/prefsStore'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
+import { getBridge } from '@/lib/bridge'
 
 export default function App() {
   const settingsOpen = useBotStore((s) => s.settingsOpen)
@@ -42,6 +43,26 @@ export default function App() {
         void connectAccount(account.id)
       }
     }
+    // Bootstrap proxy: pull live nodes from node-maint and bind to accounts once accounts exist.
+    void (async () => {
+      const muse = getBridge()?.muse
+      if (!muse?.syncNodeMaint || !muse?.assignProxyPool) return
+      let tries = 0
+      const run = async () => {
+        const ids = Object.values(useBotStore.getState().accounts).map((a) => a.id)
+        if (ids.length === 0) {
+          if (tries++ < 20) setTimeout(run, 1500)
+          return
+        }
+        try {
+          await muse.syncNodeMaint()
+          await muse.assignProxyPool(ids, [])
+        } catch {
+          /* best effort */
+        }
+      }
+      void run()
+    })()
     // Enforce 1-account-per-bot across all bots (remove any extra attached accounts)
     for (const b of useBotStore.getState().bots) {
       if (b.accountIds.length > 1) {

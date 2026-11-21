@@ -251,26 +251,19 @@ export function SettingsView() {
     void refreshProxiesAndPool()
   }, [refreshProxiesAndPool, museAccounts.length])
 
-  const autoAssignKey = useRef<string | undefined>(undefined)
+  const autoBootstrapDone = useRef(false)
 
   useEffect(() => {
     const muse = getBridge()?.muse
-    if (!muse?.assignProxyPool || allAccounts.length === 0) return
-    const unbound = allAccounts.filter((a) => !accountProxies[a.id] || accountProxies[a.id]?.mode === 'direct').length
-    if (unbound === 0) return
-    const key = `${allAccounts.length}:${pool.length}:${unbound}`
-    if (autoAssignKey.current === key) return
-    autoAssignKey.current = key
+    if (!muse?.assignProxyPool || !muse?.syncNodeMaint) return
+    if (allAccounts.length === 0) return
+    if (autoBootstrapDone.current) return
+    autoBootstrapDone.current = true
     void (async () => {
       try {
+        setAssignProgress('正在从 node-maint 自动获取可用节点并分配给账号...')
+        await muse.syncNodeMaint()
         const ids = allAccounts.map((a) => a.id)
-        if (pool.length === 0 && muse.syncNodeMaint) {
-          setAssignProgress('正在从 node-maint 自动获取可用节点并分配给账号...')
-          const res = await muse.syncNodeMaint()
-          if (res.live === 0) { setAssignProgress(undefined); return }
-        } else {
-          setAssignProgress('正在自动为导入账号选择可用代理...')
-        }
         await muse.assignProxyPool(ids, [])
         setAssignProgress(undefined)
         await refreshProxiesAndPool()
@@ -278,7 +271,7 @@ export function SettingsView() {
         setAssignProgress(undefined)
       }
     })()
-  }, [allAccounts.length, pool.length, accountProxies, refreshProxiesAndPool])
+  }, [allAccounts, refreshProxiesAndPool])
 
 
   useEffect(() => {
