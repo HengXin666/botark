@@ -10,7 +10,7 @@ import type { Agent } from "node:https"
 import { partitionForAccount } from "../webContentsViewManager"
 import { readJsonFile, writeJsonAtomic } from "../jsonFile"
 import { createMutex, planPoolAssignment, releasePoolSlot } from "@shared/proxyPool"
-import { fetchSubscriptionText, parseSubscription, subscriptionNodesToLines, maskSubscriptionUrl } from './subscription'
+import { fetchSubscriptionText, parseSubscription, subscriptionNodesToLines, maskSubscriptionUrl, selectProxyNodes } from './subscription'
 
 /** One lock for both proxy files: every change is read-modify-write across awaits. */
 const withProxyStoreLock = createMutex()
@@ -255,6 +255,9 @@ export interface SubscriptionResult {
   total: number
   imported: number
   skipped: number
+  candidates: number
+  selected: number
+  rejected: { reason: string; count: number }[]
   errors: string[]
   maskedUrl: string
 }
@@ -266,12 +269,23 @@ export async function importSubscription(
   const maskedUrl = maskSubscriptionUrl(url)
   let text: string
   try { text = await fetchSubscriptionText(url) }
-  catch (err) { return { format: 'unknown', total: 0, imported: 0, skipped: 0, errors: [(err as Error).message], maskedUrl } }
+  catch (err) { return { format: 'unknown', total: 0, imported: 0, skipped: 0, candidates: 0, selected: 0, rejected: [], errors: [(err as Error).message], maskedUrl } }
   const parsed = parseSubscription(text)
-  const lines = subscriptionNodesToLines(parsed.nodes)
-  if (!lines) return { format: parsed.format, total: parsed.skipped, imported: 0, skipped: parsed.skipped, errors: [...parsed.errors, 'no http/socks5 nodes'], maskedUrl }
+  const selection = await selectProxyNodes(parsed.nodes)
+  const lines = subscriptionNodesToLines(selection.nodes)
+  if (!lines) {
+    return {
+      format: parsed.format, total: parsed.skipped, imported: 0, skipped: parsed.skipped,
+      candidates: selection.candidates, selected: 0, rejected: selection.rejected,
+      errors: [...parsed.errors, 'no endpoint passed selection'], maskedUrl
+    }
+  }
   const res = await importProxyPool(lines, defaultMode)
-  return { format: parsed.format, total: parsed.nodes.length + parsed.skipped, imported: res.added, skipped: parsed.skipped, errors: parsed.errors, maskedUrl }
+  return {
+    format: parsed.format, total: parsed.nodes.length + parsed.skipped, imported: res.added,
+    skipped: parsed.skipped, candidates: selection.candidates, selected: selection.kept,
+    rejected: selection.rejected, errors: parsed.errors, maskedUrl
+  }
 }
 
 export function parseProxyLine(

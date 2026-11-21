@@ -25,6 +25,7 @@ import com.qybaihe.botark.service.SecureVault
 import com.qybaihe.botark.service.SubscriptionClient
 import com.qybaihe.botark.model.SubscriptionRecord
 import com.qybaihe.botark.service.parseSubscription
+import com.qybaihe.botark.service.selectProxyNodes
 import com.qybaihe.botark.service.redactSubscriptionUrl
 import com.qybaihe.botark.service.SyncCrypto
 import kotlinx.coroutines.Job
@@ -143,15 +144,18 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
             runCatching {
                 val fetched = SubscriptionClient().fetch(url)
                 val parsed = parseSubscription(fetched.text)
+                val selection = selectProxyNodes(parsed.nodes)
                 vault.saveSubscription(SubscriptionRecord(
                     redactedUrl = redactSubscriptionUrl(url),
                     fetchedAtMs = fetched.meta.fetchedAtMs,
-                    result = parsed
+                    result = parsed.copy(nodes = selection.nodes)
                 ))
-                parsed
-            }.onSuccess { parsed ->
+                selection to parsed
+            }.onSuccess { pair ->
+                val selection = pair.first
+                val parsed = pair.second
                 _uiState.update {
-                    it.copy(subscriptionSummary = "格式 " + parsed.format + "，可用节点 " + parsed.nodes.size + "，跳过 " + parsed.skipped.size + " 个非 http 端点")
+                    it.copy(subscriptionSummary = "格式 " + parsed.format + "，候选 " + selection.candidates + "，筛选保留 " + selection.kept + "，跳过协议节点 " + parsed.skipped.size)
                 }
             }.onFailure { err ->
                 _uiState.update { it.copy(subscriptionSummary = "拉取失败：" + (err.message ?: "unknown error")) }

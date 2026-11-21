@@ -102,3 +102,19 @@ describe('subscription parsing', () => {
     }))
   })
 })
+describe('proxy selection', () => {
+  it('keeps public http/socks5 endpoints and drops loopback and duplicates', async () => {
+    const { selectProxyNodes } = await import('./subscription')
+    const report = await selectProxyNodes([
+      { mode: 'http', host: '203.0.113.10', port: 3129 },
+      { mode: 'socks5', host: '127.0.0.1', port: 1080 },
+      { mode: 'http', host: '192.168.1.5', port: 8080 },
+      { mode: 'http', host: '203.0.113.10', port: 3129 },
+      { mode: 'socks5h', host: '203.0.113.11', port: 1080 } as never
+    ])
+    expect(report.candidates).toBe(5)
+    expect(report.kept).toBe(1)
+    expect(report.nodes[0]?.host).toBe('203.0.113.10')
+    expect(report.rejected.some((r) => r.reason === 'non_public_ip')).toBe(true)
+  })
+})

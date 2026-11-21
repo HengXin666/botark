@@ -315,3 +315,71 @@ export function subscriptionNodesToLines(nodes: readonly SubscriptionNode[]): st
     })
     .join('\n')
 }
+
+/** Selection criteria shared by linux and android subscription consumers. */
+export interface ProxySelectionCriteria {
+  allowedModes?: readonly ('http' | 'socks5')[]
+  requirePublicIp?: boolean
+  maxLatencyMs?: number
+  limit?: number
+  probe?: (node: SubscriptionNode) => Promise<boolean>
+}
+
+export interface ProxySelectionReport {
+  candidates: number
+  kept: number
+  rejected: { reason: string; count: number }[]
+  nodes: SubscriptionNode[]
+}
+
+function isPublicIpv4(host: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (!m) return false
+  const parts = m.slice(1).map(Number)
+  if (parts.some((n) => n < 0 || n > 255)) return false
+  const [a, b] = parts as [number, number, number, number]
+  if (a === 10 || a === 127 || a === 0 || a === 169 && b === 254) return false
+  if (a === 172 && b >= 16 && b <= 31) return false
+  if (a === 192 && b === 168) return false
+  if (a === 100 && b >= 64 && b <= 127) return false
+  if (a >= 224) return false
+  return true
+}
+
+/** Filter subscription nodes by protocol, public host and optional liveness probe. */
+export async function selectProxyNodes(
+  nodes: readonly SubscriptionNode[],
+  criteria: ProxySelectionCriteria = {}
+): Promise<ProxySelectionReport> {
+  const modes = criteria.allowedModes ?? ['http', 'socks5']
+  const requirePublicIp = criteria.requirePublicIp ?? true
+  const limit = criteria.limit ?? nodes.length
+  const rejected = new Map<string, number>()
+  const bump = (reason: string) => rejected.set(reason, (rejected.get(reason) ?? 0) + 1)
+  const seen = new Set<string>()
+  const passed: SubscriptionNode[] = []
+  for (const node of nodes) {
+    if (!modes.includes(node.mode as 'http' | 'socks5')) { bump('protocol'); continue }
+    if (!node.host || !Number.isInteger(node.port) || node.port < 1 || node.port > 65535) { bump('host_or_port'); continue }
+    if (requirePublicIp && !isPublicIpv4(node.host)) { bump('non_public_ip'); continue }
+    const key = `${node.mode}:${node.host}:${node.port}`
+    if (seen.has(key)) { bump('duplicate'); continue }
+    seen.add(key)
+    passed.push(node)
+  }
+  const kept: SubscriptionNode[] = []
+  for (const node of passed.slice(0, Math.max(limit, 0) || nodes.length)) {
+    if (criteria.probe) {
+      try {
+        if (!(await criteria.probe(node))) { bump('probe_failed'); continue }
+      } catch { bump('probe_failed'); continue }
+    }
+    kept.push(node)
+  }
+  return {
+    candidates: nodes.length,
+    kept: kept.length,
+    rejected: [...rejected].map(([reason, count]) => ({ reason, count })),
+    nodes: kept
+  }
+}

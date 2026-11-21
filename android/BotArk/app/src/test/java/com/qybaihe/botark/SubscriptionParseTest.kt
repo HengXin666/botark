@@ -1,7 +1,9 @@
 package com.qybaihe.botark
 
 import com.qybaihe.botark.model.SubscriptionFormat
+import com.qybaihe.botark.model.ProxyNode
 import com.qybaihe.botark.service.parseSubscription
+import com.qybaihe.botark.service.selectProxyNodes
 import com.qybaihe.botark.service.redactSubscriptionUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -117,5 +119,22 @@ class SubscriptionParseTest {
         assertFalse(redacted.contains("token"))
         assertFalse(redacted.contains("abcd1234"))
         assertFalse(redacted.contains("frag"))
+    }
+
+    /** Selection keeps public http/socks5 endpoints and drops loopback. */
+    @Test
+    fun selectionKeepsOnlyPublicEndpoints() {
+        val nodes = listOf(
+            ProxyNode("http", "203.0.113.10", 3129, "u", "p"),
+            ProxyNode("socks5", "127.0.0.1", 1080),
+            ProxyNode("http", "192.168.1.5", 8080),
+            ProxyNode("http", "203.0.113.10", 3129, "u", "p"),
+            ProxyNode("vless", "203.0.113.11", 443)
+        )
+        val report = selectProxyNodes(nodes)
+        assertEquals(5, report.candidates)
+        assertEquals(1, report.kept)
+        assertEquals(2, report.rejected["non_public_ip"] ?: 0)
+        assertTrue(report.nodes[0].host.startsWith("203.0.113"))
     }
 }

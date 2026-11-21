@@ -279,3 +279,44 @@ private fun parseClashYaml(text: String): LineParse {
     flush()
     return out
 }
+
+/** Selection report shared with the linux subscription consumer. */
+data class ProxySelectionReport(
+    val candidates: Int,
+    val kept: Int,
+    val rejected: Map<String, Int>,
+    val nodes: List<ProxyNode>
+)
+
+private fun isPublicIpv4(host: String): Boolean {
+    val parts = host.split(".")
+    if (parts.size != 4) return false
+    val nums = parts.mapNotNull { it.toIntOrNull() }
+    if (nums.size != 4 || nums.any { it < 0 || it > 255 }) return false
+    val a = nums[0]
+    val b = nums[1]
+    if (a == 10 || a == 127 || a == 0 || (a == 169 && b == 254)) return false
+    if (a == 172 && b in 16..31) return false
+    if (a == 192 && b == 168) return false
+    if (a == 100 && b in 64..127) return false
+    if (a >= 224) return false
+    return true
+}
+
+/** Filter parsed endpoints by protocol, public host, port and uniqueness. */
+fun selectProxyNodes(nodes: List<ProxyNode>, limit: Int = nodes.size): ProxySelectionReport {
+    val rejected = mutableMapOf<String, Int>()
+    fun bump(reason: String) { rejected[reason] = (rejected[reason] ?: 0) + 1 }
+    val seen = HashSet<String>()
+    val kept = mutableListOf<ProxyNode>()
+    for (n in nodes) {
+        if (n.mode != "http" && n.mode != "socks5") { bump("protocol"); continue }
+        if (n.host.isBlank() || n.port !in 1..65535) { bump("host_or_port"); continue }
+        if (!isPublicIpv4(n.host)) { bump("non_public_ip"); continue }
+        val key = n.mode + ":" + n.host + ":" + n.port
+        if (!seen.add(key)) { bump("duplicate"); continue }
+        if (kept.size >= limit) { bump("limit"); continue }
+        kept.add(n)
+    }
+    return ProxySelectionReport(nodes.size, kept.size, rejected, kept)
+}

@@ -297,7 +297,7 @@ export function SettingsView() {
         const assigned = await muse.assignProxyPool(ids, keepIds)
         setPool(assigned.items)
       }
-      setHint(`订阅 ${res.maskedUrl}：格式 ${res.format}，导入 ${res.imported}/${res.total}，跳过不可直连节点 ${res.skipped}${res.errors.length ? `（${res.errors.join('; ')}）` : ''}`)
+      setHint(`订阅 ${res.maskedUrl}：格式 ${res.format}，候选 ${res.candidates}，筛选保留 ${res.selected}，导入 ${res.imported}，跳过协议节点 ${res.skipped}${res.rejected.length ? `（筛除 ${res.rejected.map((r) => r.reason + '×' + r.count).join(', ')}）` : ''}${res.errors.length ? `（${res.errors.join('; ')}）` : ''}`)
       await refreshProxiesAndPool()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

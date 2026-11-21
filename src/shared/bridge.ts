@@ -154,7 +154,7 @@ export interface MuseBridge {
   subscribeProxyPool(
     url: string,
     defaultMode?: Exclude<import('./ipc').MuseProxyMode, 'direct'>
-  ): Promise<{ format: string; total: number; imported: number; skipped: number; errors: string[]; maskedUrl: string }>
+  ): Promise<{ format: string; total: number; imported: number; skipped: number; candidates: number; selected: number; rejected: { reason: string; count: number }[]; errors: string[]; maskedUrl: string }>
 }
 
 export interface UpdateBridge {
