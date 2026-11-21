@@ -97,6 +97,7 @@ const bridge: BotHubBridge = {
     listSubscriptionSources: () => ipcRenderer.invoke(MUSE_CHANNELS.listSubscriptionSources),
     reimportProxyConfigs: (nodes, accountIds) => ipcRenderer.invoke(MUSE_CHANNELS.reimportProxyConfigs, nodes, accountIds),
     syncNodeMaint: () => ipcRenderer.invoke(MUSE_CHANNELS.syncNodeMaint),
+    syncProtocol: (limit?: number) => ipcRenderer.invoke(MUSE_CHANNELS.syncProtocol, limit),
     getProxyPoolItemSecret: (id) => ipcRenderer.invoke(MUSE_CHANNELS.getProxyPoolItemSecret, id)
   },
   updates: {

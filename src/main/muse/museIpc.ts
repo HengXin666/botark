@@ -17,6 +17,7 @@ import {
   type MuseProxyConfig,
   type MuseProxyMode
 } from './accountProxy'
+import { syncProtocolNodes } from './protocolNodes'
 import { rebindGrokAccountWatch } from '../grok/grokWatchManager'
 import { rebindDotAccountNetwork } from '../dot/dotClient'
 import { cancelHarkWatch } from '../hark/harkClient'
@@ -306,6 +307,19 @@ export function registerMuseIpc(): void {
     return syncNodeMaintPool((p) => {
       if (!event.sender.isDestroyed()) event.sender.send(MUSE_CHANNELS.event, { type: 'proxy-assign-progress', ...p })
     })
+  })
+
+  ipcMain.handle(MUSE_CHANNELS.syncProtocol, async (event, limit: unknown) => {
+    const max = typeof limit === 'number' && limit > 0 ? Math.min(limit, 8000) : 4000
+    const live = await syncProtocolNodes(max, (p) => {
+      if (!event.sender.isDestroyed()) event.sender.send(MUSE_CHANNELS.event, { type: 'proxy-assign-progress', probed: p.done, live: p.alive, total: p.total, batch: 1, removed: 0, done: false })
+    })
+    if (live.length > 0) {
+      const lines = live.map((n) => 'socks5://127.0.0.1:' + n.localPort).join('\n')
+      await importProxyPool(lines, 'socks5')
+    }
+    if (!event.sender.isDestroyed()) event.sender.send(MUSE_CHANNELS.event, { type: 'proxy-assign-progress', probed: live.length, live: live.length, total: live.length, batch: 1, removed: 0, done: true })
+    return { live: live.length }
   })
 
   ipcMain.handle(MUSE_CHANNELS.getProxyPoolItemSecret, async (_event, id: unknown) => {

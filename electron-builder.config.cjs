@@ -39,6 +39,9 @@ module.exports = {
   },
   files: ['out/**/*', 'package.json'],
   asar: true,
+  extraResources: [
+    { from: 'build/mihomo', to: 'mihomo' }
+  ],
   mac: {
     category: 'public.app-category.productivity',
     icon: 'build/icon.icns',

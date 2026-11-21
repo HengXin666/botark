@@ -16,6 +16,7 @@ import { registerAntigravityIpc } from './antigravity/antigravityIpc'
 import { cancelAllAntigravityRuns } from './antigravity/antigravityClient'
 import { registerMobileSyncIpc, stopMobileSyncServer } from './mobileSync/mobileSyncIpc'
 import { applyAllStoredProxies, lookupProxyCredentials } from './muse/accountProxy'
+import { persistMihomoBindings, restoreMihomoFromFile, stopMihomo } from './muse/mihomoManager'
 import { hardenVaultFilePermissions, registerVaultIpc } from './securityVault'
 
 app.setName('BotArk')
@@ -180,6 +181,8 @@ app.on('before-quit', () => {
   cancelAllAntigravityRuns('*')
   void stopMobileSyncServer()
   disposeAllMuseManagers()
+  persistMihomoBindings()
+  stopMihomo()
 })
 
 app.on('login', (event, _webContents, _request, authInfo, callback) => {
@@ -196,6 +199,7 @@ app.whenReady().then(async () => {
   hardenVaultFilePermissions()
   // Before any partition loads: otherwise the first requests go direct.
   await Promise.race([applyAllStoredProxies(), new Promise((r) => setTimeout(r, 5_000))])
+  void restoreMihomoFromFile()
   registerWebViewIpc()
   registerMuseIpc()
   registerUpdaterIpc()

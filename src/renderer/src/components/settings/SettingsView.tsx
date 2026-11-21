@@ -374,6 +374,32 @@ export function SettingsView() {
       setBusy(false)
     }
   }
+  const handleSyncProtocol = async () => {
+    const muse = getBridge()?.muse
+    if (!muse?.syncProtocol) return
+    setBusy(true)
+    setError(undefined)
+    setHint(undefined)
+    setAssignProgress('正在通过内置内核逐条校验 vless 协议节点（数量大，需数分钟）...')
+    try {
+      const res = await muse.syncProtocol()
+      const ids = allAccounts.map((a) => a.id)
+      if (ids.length > 0 && muse.assignProxyPool && res.live > 0) {
+        const assigned = await muse.assignProxyPool(ids, [])
+        setPool(assigned.items)
+        setHint(`已从协议节点校验出 ${res.live} 个可用出口，并分配给 ${assigned.assignedCount} / ${ids.length} 个账号`)
+      } else {
+        setHint(res.live > 0 ? `已校验出 ${res.live} 个可用协议节点` : '协议节点当前均不可用')
+      }
+      setAssignProgress(undefined)
+      await refreshProxiesAndPool()
+    } catch (err) {
+      setAssignProgress(undefined)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
   const handleReEncrypt = async () => {
     const muse = getBridge()?.muse
     if (!muse?.reimportProxyConfigs || !muse?.listProxyPool || !muse?.getProxyPoolItemSecret) return
@@ -2112,9 +2138,14 @@ export function SettingsView() {
                       <div className="text-[13px] font-medium text-ink">订阅与代理导入概览</div>
                       <p className="mt-0.5 text-[11px] text-ink-muted">从 node-maint 节点情报服务按延迟/评分获取实测可出网的 http 节点，自动分配给所有账号。</p>
                     </div>
-                    <Button variant="primary" size="sm" disabled={busy || allAccounts.length === 0} onClick={() => void handleSyncNodeMaint()}>
-                      <Shuffle className="size-3.5" /> 同步 node-maint 可用节点
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button variant="primary" size="sm" disabled={busy || allAccounts.length === 0} onClick={() => void handleSyncNodeMaint()}>
+                        <Shuffle className="size-3.5" /> 同步 node-maint http 节点
+                      </Button>
+                      <Button variant="secondary" size="sm" disabled={busy || allAccounts.length === 0} onClick={() => void handleSyncProtocol()}>
+                        <Shuffle className="size-3.5" /> 同步 vless 协议节点
+                      </Button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <div className="rounded-xl bg-hover/60 p-3">
