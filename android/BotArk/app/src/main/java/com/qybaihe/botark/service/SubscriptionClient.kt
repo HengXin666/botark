@@ -35,7 +35,7 @@ class SubscriptionClient {
         .readTimeout(20, TimeUnit.SECONDS)
         .build()
 
-    /** GETs one subscription URL and returns its body plus non-sensitive metadata. */
+    /** GETs one subscription URL; the phone consumes it without a desktop (see [self-contained subscription note](.agents/notes/implemented/architecture/2026-11-21-botark-subscription-self-contained.md)). */
     suspend fun fetch(rawUrl: String): SubscriptionFetchResult = withContext(Dispatchers.IO) {
         val url = rawUrl.trim()
         val redacted = redactSubscriptionUrl(url)
@@ -304,7 +304,7 @@ private fun isPublicIpv4(host: String): Boolean {
 }
 
 /** Filter parsed endpoints by protocol, public host, port and uniqueness. */
-fun selectProxyNodes(nodes: List<ProxyNode>, limit: Int = nodes.size): ProxySelectionReport {
+fun selectProxyNodes(nodes: List<ProxyNode>, limit: Int = nodes.size, requirePublicIp: Boolean = true): ProxySelectionReport {
     val rejected = mutableMapOf<String, Int>()
     fun bump(reason: String) { rejected[reason] = (rejected[reason] ?: 0) + 1 }
     val seen = HashSet<String>()
@@ -312,7 +312,7 @@ fun selectProxyNodes(nodes: List<ProxyNode>, limit: Int = nodes.size): ProxySele
     for (n in nodes) {
         if (n.mode != "http" && n.mode != "socks5") { bump("protocol"); continue }
         if (n.host.isBlank() || n.port !in 1..65535) { bump("host_or_port"); continue }
-        if (!isPublicIpv4(n.host)) { bump("non_public_ip"); continue }
+        if (requirePublicIp && !isPublicIpv4(n.host)) { bump("non_public_ip"); continue }
         val key = n.mode + ":" + n.host + ":" + n.port
         if (!seen.add(key)) { bump("duplicate"); continue }
         if (kept.size >= limit) { bump("limit"); continue }

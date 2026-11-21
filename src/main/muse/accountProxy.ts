@@ -10,7 +10,7 @@ import type { Agent } from "node:https"
 import { partitionForAccount } from "../webContentsViewManager"
 import { readJsonFile, writeJsonAtomic } from "../jsonFile"
 import { createMutex, planPoolAssignment, releasePoolSlot } from "@shared/proxyPool"
-import { fetchSubscriptionText, parseSubscription, subscriptionNodesToLines, maskSubscriptionUrl, selectProxyNodes } from './subscription'
+import { fetchSubscriptionText, parseSubscription, subscriptionNodesToLines, maskSubscriptionUrl, selectProxyNodes, type ProxySelectionCriteria } from './subscription'
 
 /** One lock for both proxy files: every change is read-modify-write across awaits. */
 const withProxyStoreLock = createMutex()
@@ -262,16 +262,18 @@ export interface SubscriptionResult {
   maskedUrl: string
 }
 
+/** Pulls one subscription URL, filters nodes by a live egress probe (see [self-contained subscription note](.agents/notes/implemented/architecture/2026-11-21-botark-subscription-self-contained.md)). */
 export async function importSubscription(
   url: string,
-  defaultMode: Exclude<MuseProxyMode, 'direct'> = 'http'
+  defaultMode: Exclude<MuseProxyMode, 'direct'> = 'http',
+  criteria?: ProxySelectionCriteria
 ): Promise<SubscriptionResult> {
   const maskedUrl = maskSubscriptionUrl(url)
   let text: string
   try { text = await fetchSubscriptionText(url) }
   catch (err) { return { format: 'unknown', total: 0, imported: 0, skipped: 0, candidates: 0, selected: 0, rejected: [], errors: [(err as Error).message], maskedUrl } }
   const parsed = parseSubscription(text)
-  const selection = await selectProxyNodes(parsed.nodes)
+  const selection = await selectProxyNodes(parsed.nodes, criteria ?? {})
   const lines = subscriptionNodesToLines(selection.nodes)
   if (!lines) {
     return {
@@ -576,7 +578,24 @@ export async function probeProxyNode(
   if (cfg.mode === "direct" || !cfg.host || !cfg.port) return { ok: false, error: "no endpoint" }
   const url = buildAccountProxyUrl(cfg)
   if (!url) return { ok: false, error: "invalid endpoint" }
-  const target = "https://api.ipify.org"
+  const override = process.env.BOTARK_PROXY_PROBE_URL
+  if (override && cfg.mode === "http") {
+    return new Promise((resolve) => {
+      const http = require("node:http") as typeof import("node:http")
+      const basic = "Basic " + Buffer.from((cfg.username || "") + ":" + (cfg.password || "")).toString("base64")
+      const req = http.request({ host: cfg.host, port: cfg.port, method: "GET", path: override, timeout: timeoutMs,
+        headers: { "Proxy-Authorization": basic, "Host": new URL(override).host } }, (res) => {
+        if (res.statusCode !== 200) { res.resume(); resolve({ ok: false, error: `status ${res.statusCode}` }); return }
+        let body = ""
+        res.on("data", (c) => { body += c.toString() })
+        res.on("end", () => { const t = body.trim(); resolve({ ok: t.startsWith("SELFTEST-NODE-OK"), egressIp: t }) })
+      })
+      req.on("timeout", () => { req.destroy(); resolve({ ok: false, error: "timeout" }) })
+      req.on("error", (e) => resolve({ ok: false, error: e.message }))
+      req.end()
+    })
+  }
+  const target = override || "https://api.ipify.org"
   return new Promise((resolve) => {
     const http = require("node:https") as typeof import("node:https")
     const agent = cfg.mode === "socks5" || cfg.mode === "socks5h"
@@ -586,7 +605,7 @@ export async function probeProxyNode(
       if (res.statusCode !== 200) { res.resume(); resolve({ ok: false, error: `status ${res.statusCode}` }); return }
       let body = ""
       res.on("data", (c) => { body += c.toString() })
-      res.on("end", () => resolve({ ok: /^\d{1,3}(\.\d{1,3}){3}$/.test(body.trim()), egressIp: body.trim() }))
+      res.on("end", () => { const t = body.trim(); resolve({ ok: /^\d{1,3}(\.\d{1,3}){3}$/.test(t), egressIp: t }) })
     })
     req.on("timeout", () => { req.destroy(); resolve({ ok: false, error: "timeout" }) })
     req.on("error", (e) => resolve({ ok: false, error: e.message }))
