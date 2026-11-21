@@ -443,27 +443,48 @@ export async function clearProxyPool(): Promise<MuseProxyPoolItemView[]> {
  * Accounts that already have a pool proxy keep it; unassigned accounts get the
  * next free pool proxy (or round-robin if pool is smaller than accounts).
  */
+export interface ProxyAssignProgress {
+  probed: number
+  live: number
+  total: number
+  batch: number
+  done: boolean
+}
+
 export async function assignProxyPoolToAccounts(
   accountIds: string[],
   onAssigned?: (accountId: string) => Promise<void>,
-  keep?: (accountId: string) => boolean
+  keep?: (accountId: string) => boolean,
+  onProgress?: (p: ProxyAssignProgress) => void
 ): Promise<{ assignedCount: number; items: MuseProxyPoolItemView[] }> {
   const configured = await withProxyStoreLock(async () => {
     const pool = readPoolStore()
     if (pool.length === 0 || accountIds.length === 0) return [] as string[]
-    // Only live endpoints may be handed to an account. A dead node would
-    // replace a working direct connection with a permanently failing one.
-    const liveSlots: typeof pool = []
-    const maxProbes = Math.min(pool.length, Math.max(accountIds.length * 3, 30))
-    let probed = 0
+    const candidates: Array<{ slot: typeof pool[number]; cfg: NonNullable<Awaited<ReturnType<typeof decryptPoolItem>>> }> = []
     for (const slot of pool) {
-      if (probed >= maxProbes || liveSlots.length >= accountIds.length) break
       const cfg = await decryptPoolItem(slot)
-      if (!cfg || cfg.mode === "direct" || !cfg.host || !cfg.port) continue
-      probed += 1
-      const probe = await probeProxyNode(cfg)
-      if (probe.ok) liveSlots.push(slot)
+      if (cfg && cfg.mode !== "direct" && cfg.host && cfg.port) candidates.push({ slot, cfg })
     }
+    const total = candidates.length
+    const liveSlots: typeof pool = []
+    const deadline = Date.now() + 8000
+    const batchSize = 16
+    const probeBudget = Math.min(candidates.length, Math.max(accountIds.length, 64))
+    let probed = 0
+    let batch = 0
+    for (let i = 0; i < candidates.length; i += batchSize) {
+      if (Date.now() >= deadline || probed >= probeBudget || liveSlots.length >= accountIds.length) break
+      batch += 1
+      const slice = candidates.slice(i, i + batchSize)
+      const results = await Promise.all(slice.map(async ({ slot, cfg }) => {
+        const probe = await probeProxyNode(cfg, 1500)
+        return { slot, ok: probe.ok }
+      }))
+      probed += slice.length
+      for (const r of results) if (r.ok) liveSlots.push(r.slot)
+      onProgress?.({ probed, live: liveSlots.length, total, batch, done: false })
+    }
+    onProgress?.({ probed, live: liveSlots.length, total, batch, done: true })
     if (liveSlots.length === 0) return [] as string[]
     const plan = planPoolAssignment(liveSlots, accountIds, keep)
     const done: string[] = []
@@ -573,7 +594,7 @@ export async function getProxyPoolItemSecret(id: string): Promise<ImportedProxyN
 /** Verify a proxy endpoint can actually reach the public internet. */
 export async function probeProxyNode(
   cfg: MuseProxyConfig,
-  timeoutMs = 6000
+  timeoutMs = 1500
 ): Promise<{ ok: boolean; egressIp?: string; error?: string }> {
   if (cfg.mode === "direct" || !cfg.host || !cfg.port) return { ok: false, error: "no endpoint" }
   const url = buildAccountProxyUrl(cfg)

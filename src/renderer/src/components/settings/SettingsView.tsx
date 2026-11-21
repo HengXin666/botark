@@ -134,6 +134,7 @@ export function SettingsView() {
   const [subscriptionUrl, setSubscriptionUrl] = useState('')
   const [defaultMode, setDefaultMode] = useState<Exclude<MuseProxyMode, 'direct'>>('socks5')
   const [busy, setBusy] = useState(false)
+  const [assignProgress, setAssignProgress] = useState<string>()
   const [hint, setHint] = useState<string>()
   const [error, setError] = useState<string>()
   const [batchOpen, setBatchOpen] = useState(false)
@@ -249,6 +250,41 @@ export function SettingsView() {
   useEffect(() => {
     void refreshProxiesAndPool()
   }, [refreshProxiesAndPool, museAccounts.length])
+
+  const autoAssignKey = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    const muse = getBridge()?.muse
+    if (!muse?.assignProxyPool || allAccounts.length === 0 || pool.length === 0) return
+    const unbound = allAccounts.filter((a) => !accountProxies[a.id] || accountProxies[a.id]?.mode === 'direct').length
+    if (unbound === 0) return
+    const key = `${allAccounts.length}:${pool.length}:${unbound}`
+    if (autoAssignKey.current === key) return
+    autoAssignKey.current = key
+    void (async () => {
+      setAssignProgress('正在自动为导入账号选择可用代理...')
+      try {
+        const ids = allAccounts.map((a) => a.id)
+        await muse.assignProxyPool(ids, [])
+        setAssignProgress(undefined)
+        await refreshProxiesAndPool()
+      } catch {
+        setAssignProgress(undefined)
+      }
+    })()
+  }, [allAccounts.length, pool.length, accountProxies, refreshProxiesAndPool])
+
+
+  useEffect(() => {
+    const off = getBridge()?.muse?.onEvent((ev) => {
+      if (ev.type === 'proxy-assign-progress') {
+        setAssignProgress(ev.done
+          ? `巡检完成：已探测 ${ev.probed}/${ev.total} 个节点，可用 ${ev.live} 个`
+          : `巡检中：第 ${ev.batch} 批，已探测 ${ev.probed}/${ev.total}，可用 ${ev.live}`)
+      }
+    })
+    return () => off?.()
+  }, [])
 
   useEffect(() => {
     void refreshDotStoredMeta()
@@ -367,10 +403,12 @@ export function SettingsView() {
     setBusy(true)
     setError(undefined)
     setHint(undefined)
+    setAssignProgress('开始巡检订阅节点...')
     try {
       const ids = allAccounts.map((a) => a.id)
       const keepIds: string[] = []
       const res = await muse.assignProxyPool(ids, keepIds)
+      setAssignProgress(undefined)
       setPool(res.items)
       setHint(res.assignedCount > 0
         ? `已为 ${res.assignedCount} / ${ids.length} 个账号完成一对一代理匹配（仅分配实测可出网的节点）`
@@ -2065,6 +2103,12 @@ export function SettingsView() {
                       <div className="mt-0.5 text-[10px] text-ink-muted">公网绝对 IP 保留数 / 原始数</div>
                     </div>
                   </div>
+                  {assignProgress && (
+                    <p className="mt-2 text-[12px] text-status-online-ink">{assignProgress}</p>
+                  )}
+                  {assignProgress && (
+                    <p className="mt-2 text-[12px] text-status-online-ink">{assignProgress}</p>
+                  )}
                   <Button variant="secondary" size="sm" disabled={busy} onClick={() => void handleReEncrypt()}>
                     用本机钥匙串重新加密导入
                   </Button>

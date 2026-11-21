@@ -327,7 +327,12 @@ export function registerMuseIpc(): void {
         rebindNonMuseAccountStreams(accId)
       },
       // Logins still in flight are not in the renderer list yet; keep their proxy.
-      (accId) => kept.has(accId) || [...managers.values()].some((m) => m.isLoginInFlight(accId))
+      (accId) => kept.has(accId) || [...managers.values()].some((m) => m.isLoginInFlight(accId)),
+      (p) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(MUSE_CHANNELS.event, { type: 'proxy-assign-progress', ...p })
+        }
+      }
     )
   })
 
