@@ -8,6 +8,7 @@ import {
   getProxyView,
   importProxyPool,
   importSubscription,
+  syncNodeMaintPool,
   listProxyPool,
   reimportProxyConfigs,
   getProxyPoolItemSecret,
@@ -299,6 +300,12 @@ export function registerMuseIpc(): void {
     })
     const ids = accountIds.filter((i): i is string => typeof i === 'string')
     return reimportProxyConfigs(clean as never, ids)
+  })
+
+  ipcMain.handle(MUSE_CHANNELS.syncNodeMaint, async (event) => {
+    return syncNodeMaintPool((p) => {
+      if (!event.sender.isDestroyed()) event.sender.send(MUSE_CHANNELS.event, { type: 'proxy-assign-progress', ...p })
+    })
   })
 
   ipcMain.handle(MUSE_CHANNELS.getProxyPoolItemSecret, async (_event, id: unknown) => {

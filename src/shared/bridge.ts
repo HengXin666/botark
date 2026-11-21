@@ -164,6 +164,7 @@ export interface MuseBridge {
     accountIds: string[]
   ): Promise<{ pool: number; accounts: number }>
   getProxyPoolItemSecret(id: string): Promise<{ mode: Exclude<import('./ipc').MuseProxyMode, 'direct'>; host: string; port: number; username?: string; password?: string } | null>
+  syncNodeMaint(): Promise<{ live: number }>
 }
 
 export interface UpdateBridge {

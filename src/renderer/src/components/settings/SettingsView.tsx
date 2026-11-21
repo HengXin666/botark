@@ -255,17 +255,24 @@ export function SettingsView() {
 
   useEffect(() => {
     const muse = getBridge()?.muse
-    if (!muse?.assignProxyPool || allAccounts.length === 0 || pool.length === 0) return
+    if (!muse?.assignProxyPool || allAccounts.length === 0) return
     const unbound = allAccounts.filter((a) => !accountProxies[a.id] || accountProxies[a.id]?.mode === 'direct').length
     if (unbound === 0) return
     const key = `${allAccounts.length}:${pool.length}:${unbound}`
     if (autoAssignKey.current === key) return
     autoAssignKey.current = key
     void (async () => {
-      setAssignProgress('正在自动为导入账号选择可用代理...')
       try {
         const ids = allAccounts.map((a) => a.id)
+        if (pool.length === 0 && muse.syncNodeMaint) {
+          setAssignProgress('正在从 node-maint 自动获取可用节点并分配给账号...')
+          const res = await muse.syncNodeMaint()
+          if (res.live === 0) { setAssignProgress(undefined); return }
+        } else {
+          setAssignProgress('正在自动为导入账号选择可用代理...')
+        }
         await muse.assignProxyPool(ids, [])
+        setAssignProgress(undefined)
         await refreshProxiesAndPool()
       } catch {
         setAssignProgress(undefined)
@@ -347,6 +354,33 @@ export function SettingsView() {
     }
   }
 
+  const handleSyncNodeMaint = async () => {
+    const muse = getBridge()?.muse
+    if (!muse?.syncNodeMaint) return
+    setBusy(true)
+    setError(undefined)
+    setHint(undefined)
+    setAssignProgress('正在从 node-maint 拉取并按延迟排序的可用 http 节点...')
+    try {
+      const res = await muse.syncNodeMaint()
+      const ids = allAccounts.map((a) => a.id)
+      if (ids.length > 0 && muse.assignProxyPool && res.live > 0) {
+        const assigned = await muse.assignProxyPool(ids, [])
+        setPool(assigned.items)
+        setAssignProgress(undefined)
+        setHint(`已从 node-maint 同步 ${res.live} 个实测可出网节点，并分配给 ${assigned.assignedCount} / ${ids.length} 个账号`)
+      } else {
+        setAssignProgress(undefined)
+        setHint(res.live > 0 ? `已同步 ${res.live} 个可用节点` : 'node-maint 当前无实测可出网的 http 节点')
+      }
+      await refreshProxiesAndPool()
+    } catch (err) {
+      setAssignProgress(undefined)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
   const handleReEncrypt = async () => {
     const muse = getBridge()?.muse
     if (!muse?.reimportProxyConfigs || !muse?.listProxyPool || !muse?.getProxyPoolItemSecret) return
@@ -821,12 +855,6 @@ export function SettingsView() {
           </Button>
         </div>
       </PaneHeader>
-
-      {assignProgress && (
-        <div className="mx-4 mt-3 rounded-xl border border-status-online/30 bg-status-online/10 px-3 py-2 text-[12.5px] font-medium text-status-online-ink">
-          {assignProgress}
-        </div>
-      )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Left Settings Sub-navigation */}
@@ -2086,7 +2114,15 @@ export function SettingsView() {
             {settingsTab === 'proxy-pool' && (
               <div className="flex flex-col gap-5 animate-veil-in">
                 <div className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
-                  <div className="mb-3 text-[13px] font-medium text-ink">订阅与代理导入概览</div>
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[13px] font-medium text-ink">订阅与代理导入概览</div>
+                      <p className="mt-0.5 text-[11px] text-ink-muted">从 node-maint 节点情报服务按延迟/评分获取实测可出网的 http 节点，自动分配给所有账号。</p>
+                    </div>
+                    <Button variant="primary" size="sm" disabled={busy || allAccounts.length === 0} onClick={() => void handleSyncNodeMaint()}>
+                      <Shuffle className="size-3.5" /> 同步 node-maint 可用节点
+                    </Button>
+                  </div>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                     <div className="rounded-xl bg-hover/60 p-3">
                       <div className="text-[11px] text-ink-muted">订阅来源</div>
@@ -2107,14 +2143,17 @@ export function SettingsView() {
                       <div className="mt-0.5 text-[10px] text-ink-muted">公网绝对 IP 保留数 / 原始数</div>
                     </div>
                   </div>
-                  {assignProgress && (
-                    <div className="mt-3 rounded-xl border border-status-online/30 bg-status-online/10 px-3 py-2 text-[12.5px] font-medium text-status-online-ink">
-                      {assignProgress}
-                    </div>
-                  )}
-                  <Button variant="secondary" size="sm" disabled={busy} onClick={() => void handleReEncrypt()}>
-                    用本机钥匙串重新加密导入
-                  </Button>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {assignProgress && (
+                      <div className="inline-flex items-center gap-1.5 rounded-lg bg-hover/60 px-2.5 py-1 text-[11.5px] text-ink-secondary">
+                        <span className="size-1.5 animate-pulse rounded-full bg-status-online" />
+                        {assignProgress}
+                      </div>
+                    )}
+                    <Button variant="secondary" size="sm" disabled={busy} onClick={() => void handleReEncrypt()}>
+                      用本机钥匙串重新加密导入
+                    </Button>
+                  </div>
                   {subscriptionSources.subscriptions.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {subscriptionSources.subscriptions.map((s) => (

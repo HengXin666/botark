@@ -95,7 +95,8 @@ export const MUSE_CHANNELS = {
   subscribeProxyPool: 'bothub:muse:proxy-pool:subscribe',
   listSubscriptionSources: 'bothub:muse:proxy-pool:subscription-sources',
   reimportProxyConfigs: 'bothub:muse:proxy-pool:reimport',
-  getProxyPoolItemSecret: 'bothub:muse:proxy-pool:item-secret'
+  getProxyPoolItemSecret: 'bothub:muse:proxy-pool:item-secret',
+  syncNodeMaint: 'bothub:muse:proxy-pool:sync-node-maint'
 } as const
 
 export interface MuseEnsureRequest {

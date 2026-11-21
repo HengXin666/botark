@@ -331,6 +331,12 @@ export async function assignProxyPoolToAccounts(
   return assignInFlight
 }
 
+/** Public: pull live http nodes from node-maint, merge into pool and report stats. */
+export async function syncNodeMaintPool(onProgress?: (p: ProxyAssignProgress) => void): Promise<{ live: number }> {
+  const live = await seedPoolFromNodeMaint(onProgress)
+  return { live }
+}
+
 /** Pull live http nodes from node-maint and merge them into the proxy pool. */
 async function seedPoolFromNodeMaint(onProgress?: (p: ProxyAssignProgress) => void): Promise<number> {
   let live: NodeMaintLiveNode[]
