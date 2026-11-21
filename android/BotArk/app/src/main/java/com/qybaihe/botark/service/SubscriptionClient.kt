@@ -122,16 +122,17 @@ fun parseSubscription(text: String): SubscriptionParseResult {
     } else {
         parsed.errors
     }
-    return SubscriptionParseResult(format, parsed.nodes, parsed.skipped, errors)
+    return SubscriptionParseResult(format, parsed.nodes, parsed.skipped, errors, parsed.protocolUris)
 }
 
 private class LineParse {
     val nodes = mutableListOf<ProxyNode>()
     val skipped = mutableListOf<SkippedNode>()
     val errors = mutableListOf<String>()
+    val protocolUris = mutableListOf<String>()
 
     fun toResult(format: String) =
-        SubscriptionParseResult(format, nodes.toList(), skipped.toList(), errors.toList())
+        SubscriptionParseResult(format, nodes.toList(), skipped.toList(), errors.toList(), protocolUris.toList())
 }
 
 private fun schemeOf(line: String): String? {
@@ -176,9 +177,12 @@ private fun parseUriLines(text: String): LineParse {
                     out.errors.add("第 " + (index + 1) + " 行：HTTP 端点缺少 host/port")
                 }
             }
-            scheme in PROXY_SCHEMES -> out.skipped.add(
-                SkippedNode(scheme, "非 http 端点（" + scheme + " 协议需要 VpnService 才能消费流量）")
-            )
+            scheme in PROXY_SCHEMES -> {
+                if (scheme == "vless") out.protocolUris.add(line)
+                out.skipped.add(
+                    SkippedNode(scheme, "非 http 端点（" + scheme + " 协议走内置内核）")
+                )
+            }
             else -> out.errors.add("第 " + (index + 1) + " 行：无法识别的协议")
         }
     }

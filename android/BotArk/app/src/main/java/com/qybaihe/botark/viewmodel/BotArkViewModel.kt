@@ -46,7 +46,10 @@ data class BotArkUiState(
     val typingByBotId: Map<String, Boolean> = emptyMap(),
     val pairingBusy: Boolean = false,
     val lastError: String? = null,
-    val subscriptionSummary: String = ""
+    val subscriptionSummary: String = "",
+    val vpnRunning: Boolean = false,
+    val vpnNodeCount: Int = 0,
+    val vpnMessage: String = ""
 ) {
     val pendingApprovals: List<PendingApprovalItem>
         get() {
@@ -162,6 +165,32 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
     }
+    /** Parse saved vless protocol URIs into mihomo nodes and return them (empty if none). */
+    fun loadVlessNodes(): List<com.qybaihe.botark.service.MihomoNode> {
+        val rec = vault.loadSubscription() ?: return emptyList()
+        val out = mutableListOf<com.qybaihe.botark.service.MihomoNode>()
+        for (uri in rec.result.protocolUris) {
+            val n = com.qybaihe.botark.service.parseVlessNode(uri)
+            if (n != null) out.add(n)
+        }
+        return out
+    }
+
+    fun onVpnStarted(count: Int) {
+        _uiState.update { it.copy(vpnRunning = true, vpnNodeCount = count, vpnMessage = "") }
+    }
+
+    fun onVpnError(msg: String) {
+        _uiState.update { it.copy(vpnRunning = false, vpnMessage = msg) }
+    }
+
+    fun stopVpnProxy(context: android.content.Context) {
+        runCatching {
+            context.startService(android.content.Intent(context, com.qybaihe.botark.service.BotArkVpnService::class.java).setAction(com.qybaihe.botark.service.BotArkVpnService.ACTION_STOP))
+        }
+        _uiState.update { it.copy(vpnRunning = false, vpnMessage = "已停止") }
+    }
+
     fun pair(rawUri: String, onSuccess: () -> Unit = {}) {
         val payload = PairingPayload.parse(rawUri)
         if (payload == null) {

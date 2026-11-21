@@ -69,7 +69,9 @@ fun SyncSettingsScreen(
     onImportBundle: (ByteArray, String) -> Result<Int>,
     onWipeAll: () -> Unit,
     onFetchSubscription: (String) -> Unit = {},
-    subscriptionSummary: String = ""
+    subscriptionSummary: String = "",
+    onStartVpn: () -> Unit = {},
+    onStopVpn: () -> Unit = {}
 ) {
     val palette = ArkColors.current
     val context = LocalContext.current
@@ -273,7 +275,7 @@ fun SyncSettingsScreen(
                 }
             }
 
-            SubscriptionSection(onFetchSubscription, subscriptionSummary)
+            SubscriptionSection(onFetchSubscription, subscriptionSummary, state.vpnRunning, state.vpnNodeCount, state.vpnMessage, onStartVpn, onStopVpn)
 
             // Section 2: Offline Encrypted Bundle
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -479,7 +481,15 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun SubscriptionSection(onFetch: (String) -> Unit, summary: String) {
+private fun SubscriptionSection(
+    onFetch: (String) -> Unit,
+    summary: String,
+    vpnRunning: Boolean,
+    vpnNodeCount: Int,
+    vpnMessage: String,
+    onStartVpn: () -> Unit,
+    onStopVpn: () -> Unit
+) {
     var url by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
         SectionTitle("远程订阅")
@@ -510,10 +520,24 @@ private fun SubscriptionSection(onFetch: (String) -> Unit, summary: String) {
                 Text(summary, fontSize = 11.sp, color = ArkColors.current.textSecondary)
             }
             Text(
-                "支持 URI 列表、base64 订阅、Clash YAML 与 http/socks5 代理行；vless/ss 等协议节点不是 http 端点，会被跳过。",
+                "支持 URI 列表、base64 订阅、Clash YAML；vless 协议节点经内置内核转为可用出口，开启后由系统 VPN 接管全部流量。",
                 fontSize = 10.sp,
                 color = ArkColors.current.textTertiary
             )
+            Spacer(Modifier.height(9.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (vpnRunning) "代理运行中 · " + vpnNodeCount + " 个节点" else (vpnMessage.ifBlank { "代理未开启" }),
+                    fontSize = 11.5.sp,
+                    color = ArkColors.current.textSecondary
+                )
+                Spacer(Modifier.weight(1f))
+                if (vpnRunning) {
+                    TextButton(onClick = onStopVpn) { Text("停止代理", fontSize = 12.5.sp) }
+                } else {
+                    TextButton(onClick = onStartVpn, enabled = vpnNodeCount > 0 || true) { Text("开启代理", fontSize = 12.5.sp) }
+                }
+            }
         }
     }
 }

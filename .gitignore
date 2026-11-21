@@ -23,3 +23,4 @@ android/BotArk/app/build/
 android/BotArk/local.properties
 android/BotArk/.idea/
 build/mihomo
+android/BotArk/app/src/main/jniLibs/arm64-v8a/libmihomo.so

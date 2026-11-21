@@ -34,7 +34,8 @@ data class SubscriptionParseResult(
     val format: String = SubscriptionFormat.UNKNOWN,
     val nodes: List<ProxyNode> = emptyList(),
     val skipped: List<SkippedNode> = emptyList(),
-    val errors: List<String> = emptyList()
+    val errors: List<String> = emptyList(),
+    val protocolUris: List<String> = emptyList()
 )
 
 /** Non-sensitive response metadata for one subscription fetch. */
