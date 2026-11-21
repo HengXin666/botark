@@ -99,7 +99,9 @@ function probeLocal(port: number, timeoutMs: number): Promise<string | undefined
   })
 }
 
-/** Pull protocol (vless) nodes from node-maint, verify each through mihomo, keep live ones. */
+/** Pull protocol (vless) nodes from node-maint, verify each through mihomo, keep live ones.
+ * See the [builtin mihomo note](.agents/notes/implemented/architecture/2026-11-22-botark-builtin-mihomo-vless-egress.md).
+ */
 export async function syncProtocolNodes(limit = 4000, onProgress?: (p: { done: number; alive: number; total: number }) => void): Promise<ProtocolLiveNode[]> {
   const raw: Array<{ uri: string; score: number }> = []
   for (const proto of PROTOCOLS) {
