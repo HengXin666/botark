@@ -271,6 +271,22 @@ export function registerMuseIpc(): void {
     return importSubscription(url, mode)
   })
 
+  ipcMain.handle(MUSE_CHANNELS.listSubscriptionSources, async () => {
+    const { app } = await import('electron')
+    const { readFile } = await import('node:fs/promises')
+    const { join } = await import('node:path')
+    const file = join(app.getPath('userData'), 'subscription-sources.json')
+    try {
+      const raw = JSON.parse(await readFile(file, 'utf8'))
+      return {
+        subscriptions: Array.isArray(raw.subscriptions) ? raw.subscriptions : [],
+        imported: raw.imported && typeof raw.imported === 'object' ? raw.imported : { total: 0, exported: 0, http: 0, socks5: 0, with_auth: 0 }
+      }
+    } catch {
+      return { subscriptions: [], imported: { total: 0, exported: 0, http: 0, socks5: 0, with_auth: 0 } }
+    }
+  })
+
   ipcMain.handle(MUSE_CHANNELS.removeProxyPoolItem, async (_event, id: unknown) => {
     if (typeof id !== 'string') throw new TypeError('Invalid pool item id')
     return removeProxyPoolItem(id)

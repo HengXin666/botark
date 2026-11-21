@@ -124,6 +124,10 @@ export function SettingsView() {
   const setLocale = usePrefsStore((s) => s.setLocale)
 
   const [pool, setPool] = useState<MuseProxyPoolItemView[]>([])
+  const [subscriptionSources, setSubscriptionSources] = useState<{
+    subscriptions: { id: string; name: string; enabled: boolean; type: string }[]
+    imported: { total: number; exported: number; http: number; socks5: number; with_auth: number }
+  }>({ subscriptions: [], imported: { total: 0, exported: 0, http: 0, socks5: 0, with_auth: 0 } })
   const [accountProxies, setAccountProxies] = useState<Record<string, MuseProxyView>>({})
   const [dotMetaMap, setDotMetaMap] = useState<Record<string, DotStoredMeta>>({})
   const [rawProxyText, setRawProxyText] = useState('')
@@ -202,9 +206,7 @@ export function SettingsView() {
       }
       if (muse.getProxy) {
         const nextMap: Record<string, MuseProxyView> = {}
-        const allAccs = Object.values(useBotStore.getState().accounts).filter(
-          (a) => a.platformId === 'meta-muse'
-        )
+        const allAccs = Object.values(useBotStore.getState().accounts)
         await Promise.all(
           allAccs.map(async (acc) => {
             try {
@@ -215,6 +217,10 @@ export function SettingsView() {
           })
         )
         setAccountProxies(nextMap)
+      }
+      if (muse.listSubscriptionSources) {
+        const sources = await muse.listSubscriptionSources()
+        setSubscriptionSources(sources)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -291,8 +297,8 @@ export function SettingsView() {
     setHint(undefined)
     try {
       const res = await muse.subscribeProxyPool(subscriptionUrl.trim(), defaultMode)
-      const ids = museAccounts.map((a) => a.id)
-      const keepIds = [...harkAccounts, ...grokAccounts, ...dotAccounts].map((a) => a.id)
+      const ids = allAccounts.map((a) => a.id)
+      const keepIds: string[] = []
       if (ids.length > 0 && muse.assignProxyPool && res.imported > 0) {
         const assigned = await muse.assignProxyPool(ids, keepIds)
         setPool(assigned.items)
@@ -316,14 +322,14 @@ export function SettingsView() {
       const res = await muse.importProxyPool(rawProxyText, defaultMode)
       setRawProxyText('')
       setPool(res.items)
-      const ids = museAccounts.map((a) => a.id)
-      const keepIds = [...harkAccounts, ...grokAccounts, ...dotAccounts].map((a) => a.id)
+      const ids = allAccounts.map((a) => a.id)
+      const keepIds: string[] = []
       if (ids.length > 0 && muse.assignProxyPool) {
         const assigned = await muse.assignProxyPool(ids, keepIds)
         setPool(assigned.items)
-        setHint(`已导入 ${res.added} 个代理（池共 ${res.total} 个），并已自动为 ${assigned.assignedCount} 个 Muse 账号一对一绑定代理`)
+        setHint(`已导入 ${res.added} 个代理（池共 ${res.total} 个），并已自动为 ${assigned.assignedCount} 个账号一对一绑定代理`)
       } else {
-        setHint(`已导入 ${res.added} 个代理（池共 ${res.total} 个）；新建或导入 Muse 账号时将自动一对一分配`)
+        setHint(`已导入 ${res.added} 个代理（池共 ${res.total} 个）；新建或导入账号时将自动一对一分配`)
       }
       await refreshProxiesAndPool()
     } catch (err) {
@@ -340,8 +346,8 @@ export function SettingsView() {
     setError(undefined)
     setHint(undefined)
     try {
-      const ids = museAccounts.map((a) => a.id)
-      const keepIds = [...harkAccounts, ...grokAccounts, ...dotAccounts].map((a) => a.id)
+      const ids = allAccounts.map((a) => a.id)
+      const keepIds: string[] = []
       const res = await muse.assignProxyPool(ids, keepIds)
       setPool(res.items)
       setHint(`已为 ${res.assignedCount} / ${ids.length} 个 Muse 账号完成一对一代理匹配`)
@@ -865,11 +871,20 @@ export function SettingsView() {
                     </p>
                     <p className="mt-0.5 text-[11px] text-ink-muted">含 RT 自动换取 AT</p>
                   </div>
-                  <div className="rounded-2xl border border-line bg-surface p-3.5 shadow-soft">
-                    <p className="text-[12px] text-ink-muted">代理池与安全存储</p>
-                    <p className="mt-1 text-[22px] font-semibold tabular-nums text-ink">{pool.length}</p>
-                    <p className="mt-0.5 text-[11px] text-status-online-ink">Keychain 0600 加密</p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsOpen(true, 'proxy-pool')}
+                    className="rounded-2xl border border-line bg-surface p-3.5 text-left shadow-soft transition-colors hover:bg-hover"
+                  >
+                    <p className="text-[12px] text-ink-muted">订阅与代理池</p>
+                    <p className="mt-1 text-[22px] font-semibold tabular-nums text-ink">
+                      {pool.length}
+                      <span className="text-[13px] font-normal text-ink-muted"> 节点 / {subscriptionSources.subscriptions.length} 订阅</span>
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-status-online-ink">
+                      已绑定 {Object.values(accountProxies).filter((p) => p && p.mode !== 'direct').length} / {allAccounts.length} 账号 · 点击配置 →
+                    </p>
+                  </button>
                 </div>
 
                 {/* Platform Breakdown Cards */}
@@ -2004,6 +2019,39 @@ export function SettingsView() {
 
             {settingsTab === 'proxy-pool' && (
               <div className="flex flex-col gap-5 animate-veil-in">
+                <div className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
+                  <div className="mb-3 text-[13px] font-medium text-ink">订阅与代理导入概览</div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-xl bg-hover/60 p-3">
+                      <div className="text-[11px] text-ink-muted">订阅来源</div>
+                      <div className="mt-1 text-[18px] font-semibold text-ink">{subscriptionSources.subscriptions.length}</div>
+                    </div>
+                    <div className="rounded-xl bg-hover/60 p-3">
+                      <div className="text-[11px] text-ink-muted">已导入节点</div>
+                      <div className="mt-1 text-[18px] font-semibold text-ink">{pool.length}</div>
+                      <div className="mt-0.5 text-[10px] text-ink-muted">http {subscriptionSources.imported.http} / socks5 {subscriptionSources.imported.socks5}</div>
+                    </div>
+                    <div className="rounded-xl bg-hover/60 p-3">
+                      <div className="text-[11px] text-ink-muted">已绑定账号</div>
+                      <div className="mt-1 text-[18px] font-semibold text-ink">{Object.values(accountProxies).filter((p) => p && p.mode !== 'direct').length} / {allAccounts.length}</div>
+                    </div>
+                    <div className="rounded-xl bg-hover/60 p-3">
+                      <div className="text-[11px] text-ink-muted">数据源筛选</div>
+                      <div className="mt-1 text-[18px] font-semibold text-ink">{subscriptionSources.imported.exported} / {subscriptionSources.imported.total}</div>
+                      <div className="mt-0.5 text-[10px] text-ink-muted">公网绝对 IP 保留数 / 原始数</div>
+                    </div>
+                  </div>
+                  {subscriptionSources.subscriptions.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {subscriptionSources.subscriptions.map((s) => (
+                        <span key={s.id} className="rounded-full border border-line bg-main px-2 py-0.5 text-[11px] text-ink-secondary">
+                          {s.name} · {s.type}{s.enabled ? '' : ' (已停用)'}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h2 className="text-[17px] font-semibold tracking-tight text-ink">代理池</h2>
@@ -2011,9 +2059,9 @@ export function SettingsView() {
                       批量导入代理并按「一号一代理」自动分配，本地钥匙串加密保存。
                     </p>
                   </div>
-                  {pool.length > 0 && museAccounts.length > 0 && (
+                  {pool.length > 0 && allAccounts.length > 0 && (
                     <Button variant="primary" size="sm" disabled={busy} onClick={() => void handleAutoAssignAll()}>
-                      <Shuffle className="size-3.5" /> 一键匹配给全部 Muse 账号 ({museAccounts.length})
+                      <Shuffle className="size-3.5" /> 一键匹配给全部账号 ({allAccounts.length})
                     </Button>
                   )}
                 </div>

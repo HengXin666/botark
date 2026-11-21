@@ -155,6 +155,10 @@ export interface MuseBridge {
     url: string,
     defaultMode?: Exclude<import('./ipc').MuseProxyMode, 'direct'>
   ): Promise<{ format: string; total: number; imported: number; skipped: number; candidates: number; selected: number; rejected: { reason: string; count: number }[]; errors: string[]; maskedUrl: string }>
+  listSubscriptionSources(): Promise<{
+    subscriptions: { id: string; name: string; enabled: boolean; type: string }[]
+    imported: { total: number; exported: number; http: number; socks5: number; with_auth: number }
+  }>
 }
 
 export interface UpdateBridge {
