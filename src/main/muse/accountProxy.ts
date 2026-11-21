@@ -4,13 +4,16 @@
  */
 import { join } from "node:path"
 import { app, safeStorage, session as electronSession } from "electron"
-import { HttpsProxyAgent } from "https-proxy-agent"
-import { SocksProxyAgent } from "socks-proxy-agent"
-import type { Agent } from "node:https"
 import { partitionForAccount } from "../webContentsViewManager"
 import { readJsonFile, writeJsonAtomic } from "../jsonFile"
 import { createMutex, planPoolAssignment, releasePoolSlot } from "@shared/proxyPool"
-import { fetchSubscriptionText, parseSubscription, subscriptionNodesToLines, maskSubscriptionUrl, selectProxyNodes, type ProxySelectionCriteria } from './subscription'
+import { syncNodeMaintLiveNodes, type NodeMaintLiveNode } from './nodeMaint'
+import { buildAccountProxyUrl, probeProxyNode } from './proxyProbe'
+export { buildAccountProxyUrl, probeProxyNode } from './proxyProbe'
+import { parseProxyLine } from './proxySubscription'
+export { importSubscription, parseProxyLine, type SubscriptionResult } from './proxySubscription'
+import { registerProxyCredentials } from './proxyCredentials'
+export { registerProxyCredentials, lookupProxyCredentials, createProxyAgent } from './proxyCredentials'
 
 /** One lock for both proxy files: every change is read-modify-write across awaits. */
 const withProxyStoreLock = createMutex()
@@ -153,17 +156,6 @@ export async function clearProxyConfig(accountId: string): Promise<void> {
   await applyProxyToPartition(accountId, { mode: "direct" })
 }
 
-export function buildAccountProxyUrl(cfg: MuseProxyConfig): string | null {
-  if (cfg.mode === "direct" || !cfg.host || !cfg.port) return null
-  const auth =
-    cfg.username && cfg.password
-      ? `${encodeURIComponent(cfg.username)}:${encodeURIComponent(cfg.password)}@`
-      : cfg.username
-        ? `${encodeURIComponent(cfg.username)}@`
-        : ""
-  const scheme = cfg.mode === "http" ? "http" : cfg.mode
-  return `${scheme}://${auth}${cfg.host}:${cfg.port}`
-}
 
 /**
  * Resolve the per-account proxy URL string (`http://...`, `socks5://...`, `socks5h://...`)
@@ -174,18 +166,6 @@ export function buildAccountProxyUrl(cfg: MuseProxyConfig): string | null {
 export async function loadAccountProxyUrl(accountId: string): Promise<string | undefined> {
   const cfg = await loadProxyConfig(accountId)
   return buildAccountProxyUrl(cfg) ?? undefined
-}
-
-/** Credentials for proxy auth, keyed by host:port; Chromium rejects userinfo in proxyRules. */
-const proxyCredentials = new Map<string, { username: string; password: string }>()
-
-export function registerProxyCredentials(host: string, port: number, username?: string, password?: string): void {
-  if (username && password) proxyCredentials.set(`${host}:${port}`, { username, password })
-  else proxyCredentials.delete(`${host}:${port}`)
-}
-
-export function lookupProxyCredentials(host: string, port: number): { username: string; password: string } | undefined {
-  return proxyCredentials.get(`${host}:${port}`)
 }
 
 export async function applyProxyToPartition(accountId: string, cfg?: MuseProxyConfig): Promise<void> {
@@ -210,15 +190,6 @@ export async function applyProxyToPartition(accountId: string, cfg?: MuseProxyCo
   const mode = c.mode === "socks5h" ? "socks5" : c.mode
   const hostOnly = `${mode}://${c.host}:${c.port}`
   await ses.setProxy({ proxyRules: hostOnly, proxyBypassRules: "<local>" })
-}
-
-/** Node `ws` / HTTPS agent for Noise WSS (session.setProxy does not cover Node ws). */
-export async function createProxyAgent(accountId: string): Promise<Agent | undefined> {
-  const cfg = await loadProxyConfig(accountId)
-  const url = buildAccountProxyUrl(cfg)
-  if (!url) return undefined
-  if (cfg.mode === "http") return new HttpsProxyAgent(url) as unknown as Agent
-  return new SocksProxyAgent(url) as unknown as Agent
 }
 
 export interface MuseProxyPoolItemView {
@@ -250,111 +221,6 @@ function writePoolStore(list: StoredPoolItem[]): void {
 }
 
 /** Parse one proxy line (`socks5://u:p@h:p`, `http://h:p`, `h:p:u:p`, `h:p`). */
-export interface SubscriptionResult {
-  format: string
-  total: number
-  imported: number
-  skipped: number
-  candidates: number
-  selected: number
-  rejected: { reason: string; count: number }[]
-  errors: string[]
-  maskedUrl: string
-}
-
-/** Pulls one subscription URL, filters nodes by a live egress probe (see [self-contained subscription note](.agents/notes/implemented/architecture/2026-11-21-botark-subscription-self-contained.md)). */
-export async function importSubscription(
-  url: string,
-  defaultMode: Exclude<MuseProxyMode, 'direct'> = 'http',
-  criteria?: ProxySelectionCriteria
-): Promise<SubscriptionResult> {
-  const maskedUrl = maskSubscriptionUrl(url)
-  let text: string
-  try { text = await fetchSubscriptionText(url) }
-  catch (err) { return { format: 'unknown', total: 0, imported: 0, skipped: 0, candidates: 0, selected: 0, rejected: [], errors: [(err as Error).message], maskedUrl } }
-  const parsed = parseSubscription(text)
-  const selection = await selectProxyNodes(parsed.nodes, criteria ?? {})
-  const lines = subscriptionNodesToLines(selection.nodes)
-  if (!lines) {
-    return {
-      format: parsed.format, total: parsed.skipped, imported: 0, skipped: parsed.skipped,
-      candidates: selection.candidates, selected: 0, rejected: selection.rejected,
-      errors: [...parsed.errors, 'no endpoint passed selection'], maskedUrl
-    }
-  }
-  const res = await importProxyPool(lines, defaultMode)
-  return {
-    format: parsed.format, total: parsed.nodes.length + parsed.skipped, imported: res.added,
-    skipped: parsed.skipped, candidates: selection.candidates, selected: selection.kept,
-    rejected: selection.rejected, errors: parsed.errors, maskedUrl
-  }
-}
-
-export function parseProxyLine(
-  line: string,
-  defaultMode: Exclude<MuseProxyMode, "direct"> = "socks5"
-): MuseProxyConfig | null {
-  const trimmed = line.trim()
-  if (!trimmed || trimmed.startsWith("#")) return null
-
-  const schemeMatch = /^(https?|socks5h?):\/\/(.+)$/i.exec(trimmed)
-  if (schemeMatch) {
-    const rawScheme = schemeMatch[1]!.toLowerCase()
-    const mode: Exclude<MuseProxyMode, "direct"> =
-      rawScheme === "socks5h" ? "socks5h" : rawScheme === "socks5" ? "socks5" : "http"
-    const rest = schemeMatch[2]!.replace(/\/.*$/, "")
-    const atIdx = rest.lastIndexOf("@")
-    const hostPort = atIdx >= 0 ? rest.slice(atIdx + 1) : rest
-    const authPart = atIdx >= 0 ? rest.slice(0, atIdx) : ""
-    const colonIdx = hostPort.lastIndexOf(":")
-    if (colonIdx <= 0) return null
-    const host = hostPort.slice(0, colonIdx).trim()
-    const port = Number(hostPort.slice(colonIdx + 1))
-    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
-    let username: string | undefined
-    let password: string | undefined
-    if (authPart) {
-      const cIdx = authPart.indexOf(":")
-      if (cIdx >= 0) {
-        username = decodeURIComponent(authPart.slice(0, cIdx))
-        password = decodeURIComponent(authPart.slice(cIdx + 1))
-      } else {
-        username = decodeURIComponent(authPart)
-      }
-    }
-    return { mode, host, port, username: username || undefined, password: password || undefined }
-  }
-
-  // host:port:user:pass or user:pass@host:port or host:port
-  if (trimmed.includes("@")) {
-    const atIdx = trimmed.lastIndexOf("@")
-    const authPart = trimmed.slice(0, atIdx)
-    const hostPort = trimmed.slice(atIdx + 1)
-    const [host, portStr] = hostPort.split(":")
-    const port = Number(portStr)
-    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
-    const [u, ...pRest] = authPart.split(":")
-    return {
-      mode: defaultMode,
-      host: host.trim(),
-      port,
-      username: u?.trim() || undefined,
-      password: pRest.join(":") || undefined
-    }
-  }
-
-  const parts = trimmed.split(":")
-  if (parts.length >= 2) {
-    const host = parts[0]!.trim()
-    const port = Number(parts[1])
-    if (!host || !Number.isInteger(port) || port < 1 || port > 65535) return null
-    const username = parts[2]?.trim() || undefined
-    const password = parts.length > 3 ? parts.slice(3).join(":") : undefined
-    return { mode: defaultMode, host, port, username, password }
-  }
-  return null
-}
-
 async function decryptPoolItem(item: StoredPoolItem): Promise<MuseProxyConfig | null> {
   try {
     const available = await safeStorage.isAsyncEncryptionAvailable()
@@ -465,15 +331,28 @@ export async function assignProxyPoolToAccounts(
   return assignInFlight
 }
 
+/** Pull live http nodes from node-maint and merge them into the proxy pool. */
+async function seedPoolFromNodeMaint(onProgress?: (p: ProxyAssignProgress) => void): Promise<number> {
+  let live: NodeMaintLiveNode[]
+  try { live = await syncNodeMaintLiveNodes() } catch { return 0 }
+  if (live.length === 0) return 0
+  const lines = live.map((n) => `http://${n.server}:${n.port}`).join('\n')
+  await importProxyPool(lines, 'http')
+  onProgress?.({ probed: live.length, live: live.length, total: live.length, batch: 1, removed: 0, done: true })
+  return live.length
+}
+
 async function runAssign(
   accountIds: string[],
   onAssigned?: (accountId: string) => Promise<void>,
   keep?: (accountId: string) => boolean,
   onProgress?: (p: ProxyAssignProgress) => void
 ): Promise<{ assignedCount: number; items: MuseProxyPoolItemView[] }> {
+  const seeded = await seedPoolFromNodeMaint(onProgress)
   const configured = await withProxyStoreLock(async () => {
     const pool = readPoolStore()
     if (pool.length === 0 || accountIds.length === 0) return [] as string[]
+    void seeded
     const candidates: Array<{ slot: typeof pool[number]; cfg: NonNullable<Awaited<ReturnType<typeof decryptPoolItem>>> }> = []
     for (const slot of pool) {
       const cfg = await decryptPoolItem(slot)
@@ -613,45 +492,4 @@ export async function getProxyPoolItemSecret(id: string): Promise<ImportedProxyN
     username: cfg.username,
     password: cfg.password
   }
-}
-/** Verify a proxy endpoint can actually reach the public internet. */
-export async function probeProxyNode(
-  cfg: MuseProxyConfig,
-  timeoutMs = 1500
-): Promise<{ ok: boolean; egressIp?: string; error?: string }> {
-  if (cfg.mode === "direct" || !cfg.host || !cfg.port) return { ok: false, error: "no endpoint" }
-  const url = buildAccountProxyUrl(cfg)
-  if (!url) return { ok: false, error: "invalid endpoint" }
-  const override = process.env.BOTARK_PROXY_PROBE_URL
-  if (override && cfg.mode === "http") {
-    return new Promise((resolve) => {
-      const http = require("node:http") as typeof import("node:http")
-      const basic = "Basic " + Buffer.from((cfg.username || "") + ":" + (cfg.password || "")).toString("base64")
-      const req = http.request({ host: cfg.host, port: cfg.port, method: "GET", path: override, timeout: timeoutMs,
-        headers: { "Proxy-Authorization": basic, "Host": new URL(override).host } }, (res) => {
-        if (res.statusCode !== 200) { res.resume(); resolve({ ok: false, error: `status ${res.statusCode}` }); return }
-        let body = ""
-        res.on("data", (c) => { body += c.toString() })
-        res.on("end", () => { const t = body.trim(); resolve({ ok: t.startsWith("SELFTEST-NODE-OK"), egressIp: t }) })
-      })
-      req.on("timeout", () => { req.destroy(); resolve({ ok: false, error: "timeout" }) })
-      req.on("error", (e) => resolve({ ok: false, error: e.message }))
-      req.end()
-    })
-  }
-  const target = override || "https://api.ipify.org"
-  return new Promise((resolve) => {
-    const http = require("node:https") as typeof import("node:https")
-    const agent = cfg.mode === "socks5" || cfg.mode === "socks5h"
-      ? (new SocksProxyAgent(url) as unknown as import("node:https").Agent)
-      : (new HttpsProxyAgent(url) as unknown as import("node:https").Agent)
-    const req = http.get(target, { agent, timeout: timeoutMs }, (res) => {
-      if (res.statusCode !== 200) { res.resume(); resolve({ ok: false, error: `status ${res.statusCode}` }); return }
-      let body = ""
-      res.on("data", (c) => { body += c.toString() })
-      res.on("end", () => { const t = body.trim(); resolve({ ok: /^\d{1,3}(\.\d{1,3}){3}$/.test(t), egressIp: t }) })
-    })
-    req.on("timeout", () => { req.destroy(); resolve({ ok: false, error: "timeout" }) })
-    req.on("error", (e) => resolve({ ok: false, error: e.message }))
-  })
 }
