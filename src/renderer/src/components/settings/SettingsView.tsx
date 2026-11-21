@@ -266,7 +266,6 @@ export function SettingsView() {
       try {
         const ids = allAccounts.map((a) => a.id)
         await muse.assignProxyPool(ids, [])
-        setAssignProgress(undefined)
         await refreshProxiesAndPool()
       } catch {
         setAssignProgress(undefined)
@@ -279,8 +278,8 @@ export function SettingsView() {
     const off = getBridge()?.muse?.onEvent((ev) => {
       if (ev.type === 'proxy-assign-progress') {
         setAssignProgress(ev.done
-          ? `巡检完成：已探测 ${ev.probed}/${ev.total} 个节点，可用 ${ev.live} 个`
-          : `巡检中：第 ${ev.batch} 批，已探测 ${ev.probed}/${ev.total}，可用 ${ev.live}`)
+          ? `巡检完成：探测 ${ev.probed}/${ev.total}，可用 ${ev.live}，已自动清除失效节点 ${ev.removed} 个（后续不再轮询）`
+          : `巡检中 · 第 ${ev.batch} 批 · 已探测 ${ev.probed}/${ev.total} · 可用 ${ev.live} · 已清除失效 ${ev.removed}`)
       }
     })
     return () => off?.()
@@ -408,7 +407,6 @@ export function SettingsView() {
       const ids = allAccounts.map((a) => a.id)
       const keepIds: string[] = []
       const res = await muse.assignProxyPool(ids, keepIds)
-      setAssignProgress(undefined)
       setPool(res.items)
       setHint(res.assignedCount > 0
         ? `已为 ${res.assignedCount} / ${ids.length} 个账号完成一对一代理匹配（仅分配实测可出网的节点）`
@@ -823,6 +821,12 @@ export function SettingsView() {
           </Button>
         </div>
       </PaneHeader>
+
+      {assignProgress && (
+        <div className="mx-4 mt-3 rounded-xl border border-status-online/30 bg-status-online/10 px-3 py-2 text-[12.5px] font-medium text-status-online-ink">
+          {assignProgress}
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Left Settings Sub-navigation */}
@@ -2104,10 +2108,9 @@ export function SettingsView() {
                     </div>
                   </div>
                   {assignProgress && (
-                    <p className="mt-2 text-[12px] text-status-online-ink">{assignProgress}</p>
-                  )}
-                  {assignProgress && (
-                    <p className="mt-2 text-[12px] text-status-online-ink">{assignProgress}</p>
+                    <div className="mt-3 rounded-xl border border-status-online/30 bg-status-online/10 px-3 py-2 text-[12.5px] font-medium text-status-online-ink">
+                      {assignProgress}
+                    </div>
                   )}
                   <Button variant="secondary" size="sm" disabled={busy} onClick={() => void handleReEncrypt()}>
                     用本机钥匙串重新加密导入

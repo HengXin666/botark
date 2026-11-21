@@ -331,7 +331,7 @@ export type MuseMainEvent =
       windowClosed?: boolean
     }
   | { type: 'quota'; accountId: string; snapshot: MuseQuotaSnapshot }
-  | { type: 'proxy-assign-progress'; probed: number; live: number; total: number; batch: number; done: boolean }
+  | { type: 'proxy-assign-progress'; probed: number; live: number; total: number; batch: number; removed: number; done: boolean }
   | { type: 'schedules'; accountId: string; schedules: MuseSchedule[] }
   | { type: 'invite'; accountId: string; snapshot: MuseInviteSnapshot }
   | { type: 'sessions'; accountId: string; sessions: MuseChatSessionView[] }

@@ -448,10 +448,24 @@ export interface ProxyAssignProgress {
   live: number
   total: number
   batch: number
+  removed: number
   done: boolean
 }
 
+let assignInFlight: Promise<{ assignedCount: number; items: MuseProxyPoolItemView[] }> | null = null
+
 export async function assignProxyPoolToAccounts(
+  accountIds: string[],
+  onAssigned?: (accountId: string) => Promise<void>,
+  keep?: (accountId: string) => boolean,
+  onProgress?: (p: ProxyAssignProgress) => void
+): Promise<{ assignedCount: number; items: MuseProxyPoolItemView[] }> {
+  if (assignInFlight) return assignInFlight
+  assignInFlight = runAssign(accountIds, onAssigned, keep, onProgress).finally(() => { assignInFlight = null })
+  return assignInFlight
+}
+
+async function runAssign(
   accountIds: string[],
   onAssigned?: (accountId: string) => Promise<void>,
   keep?: (accountId: string) => boolean,
@@ -467,24 +481,32 @@ export async function assignProxyPoolToAccounts(
     }
     const total = candidates.length
     const liveSlots: typeof pool = []
-    const deadline = Date.now() + 8000
-    const batchSize = 16
+    const deadIds = new Set<string>()
+    const deadline = Date.now() + 3000
+    const batchSize = 32
     const probeBudget = Math.min(candidates.length, Math.max(accountIds.length, 64))
     let probed = 0
     let batch = 0
+    let removedCount = 0
     for (let i = 0; i < candidates.length; i += batchSize) {
       if (Date.now() >= deadline || probed >= probeBudget || liveSlots.length >= accountIds.length) break
       batch += 1
       const slice = candidates.slice(i, i + batchSize)
       const results = await Promise.all(slice.map(async ({ slot, cfg }) => {
-        const probe = await probeProxyNode(cfg, 1500)
+        const probe = await probeProxyNode(cfg, 800)
         return { slot, ok: probe.ok }
       }))
       probed += slice.length
-      for (const r of results) if (r.ok) liveSlots.push(r.slot)
-      onProgress?.({ probed, live: liveSlots.length, total, batch, done: false })
+      for (const r of results) {
+        if (r.ok) liveSlots.push(r.slot)
+        else { deadIds.add(r.slot.id); removedCount += 1 }
+      }
+      onProgress?.({ probed, live: liveSlots.length, total, batch, removed: removedCount, done: false })
     }
-    onProgress?.({ probed, live: liveSlots.length, total, batch, done: true })
+    if (deadIds.size > 0) {
+      writePoolStore(pool.filter((s) => !deadIds.has(s.id)))
+    }
+    onProgress?.({ probed, live: liveSlots.length, total, batch, removed: removedCount, done: true })
     if (liveSlots.length === 0) return [] as string[]
     const plan = planPoolAssignment(liveSlots, accountIds, keep)
     const done: string[] = []
@@ -496,7 +518,8 @@ export async function assignProxyPoolToAccounts(
       }
     }
     const liveIds = new Set(liveSlots.map((s) => s.id))
-    const finalPool = pool.map((s) => {
+    const remaining = pool.filter((s) => !deadIds.has(s.id))
+    const finalPool = remaining.map((s) => {
       const assigned = plan.pool.find((p) => p.id === s.id)?.assignedAccountId
       return liveIds.has(s.id) ? { ...s, assignedAccountId: assigned } : s
     })
