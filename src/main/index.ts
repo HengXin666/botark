@@ -19,6 +19,7 @@ import { applyAllStoredProxies, lookupProxyCredentials } from './muse/accountPro
 import { hardenVaultFilePermissions, registerVaultIpc } from './securityVault'
 
 app.setName('BotArk')
+app.setPath('userData', join(app.getPath('appData'), 'botark'))
 
 const isMac = process.platform === 'darwin'
 const isLinux = process.platform === 'linux'
