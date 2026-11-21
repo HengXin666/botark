@@ -159,6 +159,11 @@ export interface MuseBridge {
     subscriptions: { id: string; name: string; enabled: boolean; type: string }[]
     imported: { total: number; exported: number; http: number; socks5: number; with_auth: number }
   }>
+  reimportProxyConfigs(
+    nodes: { mode: Exclude<import('./ipc').MuseProxyMode, 'direct'>; host: string; port: number; username?: string; password?: string }[],
+    accountIds: string[]
+  ): Promise<{ pool: number; accounts: number }>
+  getProxyPoolItemSecret(id: string): Promise<{ mode: Exclude<import('./ipc').MuseProxyMode, 'direct'>; host: string; port: number; username?: string; password?: string } | null>
 }
 
 export interface UpdateBridge {

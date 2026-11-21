@@ -18,6 +18,8 @@ import { registerMobileSyncIpc, stopMobileSyncServer } from './mobileSync/mobile
 import { applyAllStoredProxies, lookupProxyCredentials } from './muse/accountProxy'
 import { hardenVaultFilePermissions, registerVaultIpc } from './securityVault'
 
+app.setName('BotArk')
+
 const isMac = process.platform === 'darwin'
 const isLinux = process.platform === 'linux'
 let mainWindow: BrowserWindow | null = null

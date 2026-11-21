@@ -32,6 +32,9 @@ export function ProxySection({ accountId }: { accountId: string }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string>()
   const [hint, setHint] = useState<string>()
+  const [poolItems, setPoolItems] = useState<Array<{ id: string; mode: string; host: string; port: number }>>([])
+  const [selectedPoolId, setSelectedPoolId] = useState('')
+  const [picking, setPicking] = useState(false)
 
   const refresh = useCallback(async () => {
     const muse = getBridge()?.muse
@@ -60,6 +63,36 @@ export function ProxySection({ accountId }: { accountId: string }) {
     void refresh()
   }, [refresh])
 
+  useEffect(() => {
+    const muse = getBridge()?.muse
+    if (!muse?.listProxyPool) return
+    void muse.listProxyPool().then((items) => {
+      setPoolItems(items.map((i) => ({ id: i.id, mode: i.mode, host: i.host, port: i.port })))
+    }).catch(() => undefined)
+  }, [])
+
+  const pickFromPool = async (id: string) => {
+    setSelectedPoolId(id)
+    if (!id) return
+    const muse = getBridge()?.muse
+    if (!muse?.getProxyPoolItemSecret) return
+    setPicking(true)
+    setError(undefined)
+    try {
+      const node = await muse.getProxyPoolItemSecret(id)
+      if (!node) throw new Error('代理节点不可读')
+      setMode(node.mode)
+      setHost(node.host)
+      setPort(String(node.port))
+      setUsername(node.username || '')
+      setPassword(node.password || '')
+      setHint(`已选中订阅节点 ${node.host}:${node.port}，点击保存代理生效`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPicking(false)
+    }
+  }
   const save = async () => {
     const muse = getBridge()?.muse
     if (!muse?.setProxy) return
@@ -108,7 +141,24 @@ export function ProxySection({ accountId }: { accountId: string }) {
         <span>钥匙串加密存储 · 不可读时自动阻断直连</span>
       </p>
       <div className="flex flex-col gap-2">
-        <label className="flex flex-col gap-1 text-[12px]">
+        {poolItems.length > 0 && (
+          <label className="flex flex-col gap-1 text-[12px]">
+            <span className="font-medium text-ink">从订阅池选择节点 ({poolItems.length})</span>
+            <select
+              value={selectedPoolId}
+              onChange={(e) => void pickFromPool(e.target.value)}
+              disabled={picking}
+              className="rounded-lg border border-line bg-surface px-2 py-1 text-[12.5px] text-ink"
+            >
+              <option value="">-- 手动填写或使用下方模式 --</option>
+              {poolItems.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.mode}://{p.host}:{p.port}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}        <label className="flex flex-col gap-1 text-[12px]">
           <span className="font-medium text-ink">{t('Mode')}</span>
           <select
             value={mode}

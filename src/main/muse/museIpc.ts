@@ -9,6 +9,8 @@ import {
   importProxyPool,
   importSubscription,
   listProxyPool,
+  reimportProxyConfigs,
+  getProxyPoolItemSecret,
   removeProxyPoolItem,
   saveProxyConfig,
   type MuseProxyConfig,
@@ -287,6 +289,22 @@ export function registerMuseIpc(): void {
     }
   })
 
+  ipcMain.handle(MUSE_CHANNELS.reimportProxyConfigs, async (_event, nodes: unknown, accountIds: unknown) => {
+    if (!Array.isArray(nodes) || !Array.isArray(accountIds)) throw new TypeError('Invalid reimport payload')
+    const clean = nodes.filter((n): n is { mode: string; host: string; port: number; username?: string; password?: string } => {
+      if (!n || typeof n !== 'object') return false
+      const x = n as Record<string, unknown>
+      return (x.mode === 'http' || x.mode === 'socks5' || x.mode === 'socks5h') &&
+        typeof x.host === 'string' && x.host.length > 0 && Number.isInteger(x.port) && (x.port as number) > 0 && (x.port as number) <= 65535
+    })
+    const ids = accountIds.filter((i): i is string => typeof i === 'string')
+    return reimportProxyConfigs(clean as never, ids)
+  })
+
+  ipcMain.handle(MUSE_CHANNELS.getProxyPoolItemSecret, async (_event, id: unknown) => {
+    if (typeof id !== 'string') throw new TypeError('Invalid pool item id')
+    return getProxyPoolItemSecret(id)
+  })
   ipcMain.handle(MUSE_CHANNELS.removeProxyPoolItem, async (_event, id: unknown) => {
     if (typeof id !== 'string') throw new TypeError('Invalid pool item id')
     return removeProxyPoolItem(id)

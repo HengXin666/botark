@@ -504,3 +504,49 @@ export async function applyAllStoredProxies(log: (msg: string, err: unknown) => 
     ids.map((id) => applyProxyToPartition(id).catch((err) => log(`[proxy] ${id} not applied`, err)))
   )
 }
+
+export interface ImportedProxyNode {
+  mode: Exclude<MuseProxyMode, "direct">
+  host: string
+  port: number
+  username?: string
+  password?: string
+}
+
+export async function reimportProxyConfigs(
+  nodes: ImportedProxyNode[],
+  accountIds: string[]
+): Promise<{ pool: number; accounts: number }> {
+  const available = await safeStorage.isAsyncEncryptionAvailable()
+  if (!available) throw new Error("safeStorage encryption unavailable")
+  const pool: StoredPoolItem[] = []
+  for (let i = 0; i < nodes.length; i++) {
+    const enc = await safeStorage.encryptStringAsync(JSON.stringify(nodes[i]))
+    pool.push({ id: `px_reimport_${i.toString(36)}_${Math.random().toString(36).slice(2, 7)}`, enc: enc.toString("base64") })
+  }
+  const store: StoreFile = {}
+  for (let i = 0; i < accountIds.length; i++) {
+    const node = nodes[i % nodes.length]
+    const enc = await safeStorage.encryptStringAsync(JSON.stringify(node))
+    store[accountIds[i]] = { enc: enc.toString("base64") }
+  }
+  await withProxyStoreLock(() => {
+    writePoolStore(pool)
+    writeStore(store)
+  })
+  return { pool: pool.length, accounts: Object.keys(store).length }
+}
+
+export async function getProxyPoolItemSecret(id: string): Promise<ImportedProxyNode | null> {
+  const item = readPoolStore().find((x) => x.id === id)
+  if (!item) return null
+  const cfg = await decryptPoolItem(item)
+  if (!cfg || cfg.mode === "direct" || !cfg.host || !cfg.port) return null
+  return {
+    mode: cfg.mode as Exclude<MuseProxyMode, "direct">,
+    host: cfg.host,
+    port: cfg.port,
+    username: cfg.username,
+    password: cfg.password
+  }
+}

@@ -312,6 +312,28 @@ export function SettingsView() {
     }
   }
 
+  const handleReEncrypt = async () => {
+    const muse = getBridge()?.muse
+    if (!muse?.reimportProxyConfigs || !muse?.listProxyPool || !muse?.getProxyPoolItemSecret) return
+    setBusy(true)
+    setError(undefined)
+    try {
+      const items = await muse.listProxyPool()
+      const nodes: Parameters<NonNullable<typeof muse.reimportProxyConfigs>>[0] = []
+      for (const item of items) {
+        const secret = await muse.getProxyPoolItemSecret(item.id)
+        if (secret) nodes.push(secret)
+      }
+      const ids = allAccounts.map((a) => a.id)
+      const res = await muse.reimportProxyConfigs(nodes, ids)
+      setHint(`已用本机钥匙串重新加密：池 ${res.pool} 条，账号 ${res.accounts} 个绑定`)
+      await refreshProxiesAndPool()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
   const handleImportPool = async () => {
     const muse = getBridge()?.muse
     if (!muse?.importProxyPool || !rawProxyText.trim()) return
@@ -2041,6 +2063,9 @@ export function SettingsView() {
                       <div className="mt-0.5 text-[10px] text-ink-muted">公网绝对 IP 保留数 / 原始数</div>
                     </div>
                   </div>
+                  <Button variant="secondary" size="sm" disabled={busy} onClick={() => void handleReEncrypt()}>
+                    用本机钥匙串重新加密导入
+                  </Button>
                   {subscriptionSources.subscriptions.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {subscriptionSources.subscriptions.map((s) => (
