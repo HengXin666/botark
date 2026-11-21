@@ -7,6 +7,7 @@ import {
   clearProxyPool,
   getProxyView,
   importProxyPool,
+  importSubscription,
   listProxyPool,
   removeProxyPoolItem,
   saveProxyConfig,
@@ -262,6 +263,12 @@ export function registerMuseIpc(): void {
     const mode: Exclude<MuseProxyMode, 'direct'> =
       defaultMode === 'http' || defaultMode === 'socks5h' ? defaultMode : 'socks5'
     return importProxyPool(rawText, mode)
+  })
+
+  ipcMain.handle(MUSE_CHANNELS.subscribeProxyPool, async (_event, url: unknown, defaultMode: unknown) => {
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) throw new TypeError('Invalid subscription url')
+    const mode: Exclude<MuseProxyMode, 'direct'> = defaultMode === 'http' || defaultMode === 'socks5' ? defaultMode : 'http'
+    return importSubscription(url, mode)
   })
 
   ipcMain.handle(MUSE_CHANNELS.removeProxyPoolItem, async (_event, id: unknown) => {

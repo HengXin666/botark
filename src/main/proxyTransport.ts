@@ -30,7 +30,7 @@ function dispatcherFor(raw: string): Dispatcher {
   return d
 }
 
-function systemAwareFetch(input: string, init?: RequestInit): Promise<Response> {
+export function systemAwareFetch(input: string, init?: RequestInit): Promise<Response> {
   try {
     if (
       electron?.app &&

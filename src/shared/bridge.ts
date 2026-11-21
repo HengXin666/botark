@@ -151,6 +151,10 @@ export interface MuseBridge {
   clearProxyPool(): Promise<MuseProxyPoolItemView[]>
   /** `keepIds`: accounts whose current slot is kept but who get no new one. */
   assignProxyPool(accountIds: string[], keepIds?: string[]): Promise<{ assignedCount: number; items: MuseProxyPoolItemView[] }>
+  subscribeProxyPool(
+    url: string,
+    defaultMode?: Exclude<import('./ipc').MuseProxyMode, 'direct'>
+  ): Promise<{ format: string; total: number; imported: number; skipped: number; errors: string[]; maskedUrl: string }>
 }
 
 export interface UpdateBridge {

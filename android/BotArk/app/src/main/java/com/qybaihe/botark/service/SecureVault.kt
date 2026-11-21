@@ -7,6 +7,7 @@ import androidx.security.crypto.MasterKey
 import com.qybaihe.botark.model.DirectHermesCredential
 import com.qybaihe.botark.model.PairedDesktopInfo
 import com.qybaihe.botark.model.WorkspaceSnapshot
+import com.qybaihe.botark.model.SubscriptionRecord
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -86,8 +87,18 @@ class SecureVault(private val context: Context) {
         runCatching { cacheFile.delete() }
     }
 
+    fun saveSubscription(record: SubscriptionRecord) {
+        prefs.edit().putString(KEY_SUBSCRIPTION, json.encodeToString(record)).apply()
+    }
+
+    fun loadSubscription(): SubscriptionRecord? {
+        val raw = prefs.getString(KEY_SUBSCRIPTION, null) ?: return null
+        return runCatching { json.decodeFromString<SubscriptionRecord>(raw) }.getOrNull()
+    }
+
     companion object {
         private const val KEY_PAIRED_DESKTOP = "paired_desktop_v1"
         private const val KEY_DIRECT_HERMES = "direct_hermes_v1"
+        private const val KEY_SUBSCRIPTION = "subscription_v1"
     }
 }

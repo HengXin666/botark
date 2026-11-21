@@ -127,6 +127,7 @@ export function SettingsView() {
   const [accountProxies, setAccountProxies] = useState<Record<string, MuseProxyView>>({})
   const [dotMetaMap, setDotMetaMap] = useState<Record<string, DotStoredMeta>>({})
   const [rawProxyText, setRawProxyText] = useState('')
+  const [subscriptionUrl, setSubscriptionUrl] = useState('')
   const [defaultMode, setDefaultMode] = useState<Exclude<MuseProxyMode, 'direct'>>('socks5')
   const [busy, setBusy] = useState(false)
   const [hint, setHint] = useState<string>()
@@ -277,6 +278,29 @@ export function SettingsView() {
       await Promise.all(targets.map((a) => connectAccount(a.id).catch(() => undefined)))
       await refreshDotStoredMeta()
       setHint(`已完成 ${targets.length} 个账号的连接巡检与会话同步`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleSubscribePool = async () => {
+    const muse = getBridge()?.muse
+    if (!muse?.subscribeProxyPool || !subscriptionUrl.trim()) return
+    setBusy(true)
+    setError(undefined)
+    setHint(undefined)
+    try {
+      const res = await muse.subscribeProxyPool(subscriptionUrl.trim(), defaultMode)
+      const ids = museAccounts.map((a) => a.id)
+      const keepIds = [...harkAccounts, ...grokAccounts, ...dotAccounts].map((a) => a.id)
+      if (ids.length > 0 && muse.assignProxyPool && res.imported > 0) {
+        const assigned = await muse.assignProxyPool(ids, keepIds)
+        setPool(assigned.items)
+      }
+      setHint(`订阅 ${res.maskedUrl}：格式 ${res.format}，导入 ${res.imported}/${res.total}，跳过不可直连节点 ${res.skipped}${res.errors.length ? `（${res.errors.join('; ')}）` : ''}`)
+      await refreshProxiesAndPool()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
@@ -1994,6 +2018,28 @@ export function SettingsView() {
                   )}
                 </div>
 
+                {/* Remote Subscription Card */}
+                <div className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
+                  <div className="mb-2 text-[13px] font-medium text-ink">远程订阅地址</div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={subscriptionUrl}
+                      onChange={(e) => setSubscriptionUrl(e.target.value)}
+                      placeholder="https://example.com/sub?token=..."
+                      spellCheck={false}
+                      className="min-w-0 flex-1 rounded-lg border border-line bg-canvas px-2.5 py-1.5 font-mono text-[12px] text-ink"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || !subscriptionUrl.trim()}
+                      onClick={() => void handleSubscribePool()}
+                      className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-line bg-canvas px-3 text-[12px] text-ink-secondary hover:bg-hover hover:text-ink disabled:opacity-50"
+                    >
+                      拉取订阅并导入
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-ink-secondary">支持明文节点列表、base64 订阅、Clash YAML 与 http/socks5 代理行；vless/ss/trojan 等协议节点会被跳过（不是可直连的 http 端点）。</p>
+                </div>
                 {/* Proxy Pool Importer Card */}
                 <div className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
                   <div className="mb-2 flex items-center justify-between">

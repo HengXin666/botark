@@ -10,6 +10,7 @@ import type { Agent } from "node:https"
 import { partitionForAccount } from "../webContentsViewManager"
 import { readJsonFile, writeJsonAtomic } from "../jsonFile"
 import { createMutex, planPoolAssignment, releasePoolSlot } from "@shared/proxyPool"
+import { fetchSubscriptionText, parseSubscription, subscriptionNodesToLines, maskSubscriptionUrl } from './subscription'
 
 /** One lock for both proxy files: every change is read-modify-write across awaits. */
 const withProxyStoreLock = createMutex()
@@ -175,6 +176,18 @@ export async function loadAccountProxyUrl(accountId: string): Promise<string | u
   return buildAccountProxyUrl(cfg) ?? undefined
 }
 
+/** Credentials for proxy auth, keyed by host:port; Chromium rejects userinfo in proxyRules. */
+const proxyCredentials = new Map<string, { username: string; password: string }>()
+
+export function registerProxyCredentials(host: string, port: number, username?: string, password?: string): void {
+  if (username && password) proxyCredentials.set(`${host}:${port}`, { username, password })
+  else proxyCredentials.delete(`${host}:${port}`)
+}
+
+export function lookupProxyCredentials(host: string, port: number): { username: string; password: string } | undefined {
+  return proxyCredentials.get(`${host}:${port}`)
+}
+
 export async function applyProxyToPartition(accountId: string, cfg?: MuseProxyConfig): Promise<void> {
   const ses = electronSession.fromPartition(partitionForAccount(accountId))
   let c: MuseProxyConfig
@@ -186,17 +199,17 @@ export async function applyProxyToPartition(accountId: string, cfg?: MuseProxyCo
     throw err
   }
   if (c.mode === "direct") {
-    // Respect OS system proxy (e.g. Clash / Surge on 127.0.0.1) when no per-account proxy is set.
     await ses.setProxy({ mode: "system" })
     return
   }
-  const url = buildAccountProxyUrl(c)
-  if (!url) {
-    await ses.setProxy({ mode: "system" })
+  if (!c.host || !c.port) {
+    await ses.setProxy({ proxyRules: BLOCKING_PROXY_RULE, proxyBypassRules: "" })
     return
   }
-  // Electron honors proxyRules for partition fetch + WebContents login window.
-  await ses.setProxy({ proxyRules: url, proxyBypassRules: "<local>" })
+  registerProxyCredentials(c.host, c.port, c.username, c.password)
+  const mode = c.mode === "socks5h" ? "socks5" : c.mode
+  const hostOnly = `${mode}://${c.host}:${c.port}`
+  await ses.setProxy({ proxyRules: hostOnly, proxyBypassRules: "<local>" })
 }
 
 /** Node `ws` / HTTPS agent for Noise WSS (session.setProxy does not cover Node ws). */
@@ -237,6 +250,30 @@ function writePoolStore(list: StoredPoolItem[]): void {
 }
 
 /** Parse one proxy line (`socks5://u:p@h:p`, `http://h:p`, `h:p:u:p`, `h:p`). */
+export interface SubscriptionResult {
+  format: string
+  total: number
+  imported: number
+  skipped: number
+  errors: string[]
+  maskedUrl: string
+}
+
+export async function importSubscription(
+  url: string,
+  defaultMode: Exclude<MuseProxyMode, 'direct'> = 'http'
+): Promise<SubscriptionResult> {
+  const maskedUrl = maskSubscriptionUrl(url)
+  let text: string
+  try { text = await fetchSubscriptionText(url) }
+  catch (err) { return { format: 'unknown', total: 0, imported: 0, skipped: 0, errors: [(err as Error).message], maskedUrl } }
+  const parsed = parseSubscription(text)
+  const lines = subscriptionNodesToLines(parsed.nodes)
+  if (!lines) return { format: parsed.format, total: parsed.skipped, imported: 0, skipped: parsed.skipped, errors: [...parsed.errors, 'no http/socks5 nodes'], maskedUrl }
+  const res = await importProxyPool(lines, defaultMode)
+  return { format: parsed.format, total: parsed.nodes.length + parsed.skipped, imported: res.added, skipped: parsed.skipped, errors: parsed.errors, maskedUrl }
+}
+
 export function parseProxyLine(
   line: string,
   defaultMode: Exclude<MuseProxyMode, "direct"> = "socks5"

@@ -208,7 +208,9 @@ private fun BotArkRoot(
                     onUnpair = { viewModel.unpairDesktop() },
                     onOpenAddHermes = { showAddHermes = true },
                     onImportBundle = { bytes, key -> viewModel.importOfflineBundle(bytes, key) },
-                    onWipeAll = { viewModel.wipeAllLocalData() }
+                    onWipeAll = { viewModel.wipeAllLocalData() },
+                    onFetchSubscription = { url -> viewModel.fetchSubscription(url) },
+                    subscriptionSummary = state.subscriptionSummary
                 )
             }
         }

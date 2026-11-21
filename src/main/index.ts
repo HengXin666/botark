@@ -15,7 +15,7 @@ import { cancelAllHermesRuns } from './hermes/hermesClient'
 import { registerAntigravityIpc } from './antigravity/antigravityIpc'
 import { cancelAllAntigravityRuns } from './antigravity/antigravityClient'
 import { registerMobileSyncIpc, stopMobileSyncServer } from './mobileSync/mobileSyncIpc'
-import { applyAllStoredProxies } from './muse/accountProxy'
+import { applyAllStoredProxies, lookupProxyCredentials } from './muse/accountProxy'
 import { hardenVaultFilePermissions, registerVaultIpc } from './securityVault'
 
 const isMac = process.platform === 'darwin'
@@ -177,6 +177,15 @@ app.on('before-quit', () => {
   cancelAllAntigravityRuns('*')
   void stopMobileSyncServer()
   disposeAllMuseManagers()
+})
+
+app.on('login', (event, _webContents, _request, authInfo, callback) => {
+  if (!authInfo.isProxy) return
+  const cred = lookupProxyCredentials(authInfo.host || '', Number(authInfo.port) || 0)
+  if (cred) { event.preventDefault(); callback(cred.username, cred.password); return }
+  // Unmatched proxy auth must not leak credentials or fall open.
+  event.preventDefault()
+  callback('', '')
 })
 
 app.whenReady().then(async () => {

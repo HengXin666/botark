@@ -20,6 +20,7 @@ vi.mock('electron', () => ({
 vi.mock('../webContentsViewManager', () => ({ partitionForAccount: (id: string) => `persist:test-${id}` }))
 
 const { applyAllStoredProxies, applyProxyToPartition, loadProxyConfig, ProxyConfigUnreadableError } = await import('./accountProxy')
+const { parseSubscription, subscriptionNodesToLines } = await import('./subscription')
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 beforeEach(() => {
@@ -53,5 +54,51 @@ describe('account proxy fails closed', () => {
     expect(setProxy.mock.calls.length).toBeGreaterThanOrEqual(1)
     for (const [cfg] of setProxy.mock.calls) expect(cfg).toMatchObject({ proxyRules: 'http://127.0.0.1:9' })
     expect(log).toHaveBeenCalledOnce()
+  })
+})
+
+describe('subscription parsing', () => {
+  it('collects http/socks5 lines and skips protocol nodes', () => {
+    const text = [
+      'vless://11111111-1111-1111-1111-111111111111@203.0.113.10:443#a',
+      'http://userA:pwdA@203.0.113.12:3129',
+      'socks5://userB:pwdB@203.0.113.13:1080',
+      '203.0.113.14:8080'
+    ].join('\n')
+    const r = parseSubscription(text)
+    expect(r.format).toBe('uri-list')
+    expect(r.nodes.length).toBe(3)
+    expect(subscriptionNodesToLines(r.nodes).split('\n').length).toBe(3)
+    expect(r.skipped).toBe(1)
+  })
+
+  it('sniffs base64-wrapped uri lists by content', () => {
+    const inner = 'ss://x@203.0.113.21:8388#s1\nhttp://u:p@203.0.113.22:3129'
+    const r = parseSubscription(Buffer.from(inner).toString('base64'))
+    expect(r.format).toBe('base64-uri')
+    expect(r.nodes.length).toBe(1)
+    expect(r.skipped).toBe(1)
+  })
+
+  it('reads http/socks5 entries from clash yaml', () => {
+    const text = 'proxies:\n  - name: h1\n    type: http\n    server: 203.0.113.31\n    port: 3129\n    username: u1\n    password: p1\n  - name: s1\n    type: socks5\n    server: 203.0.113.32\n    port: 1080\n'
+    const r = parseSubscription(text)
+    expect(r.format).toBe('clash-yaml')
+    expect(r.nodes.length).toBe(2)
+    expect(subscriptionNodesToLines(r.nodes)).toContain('http://')
+  })
+
+  it('builds host-only proxyRules for a credentialed node', async () => {
+    await applyProxyToPartition('acc1', {
+      mode: 'http',
+      host: '203.0.113.12',
+      port: 3129,
+      username: 'userA',
+      password: 'pwdA'
+    })
+    expect(setProxy).toHaveBeenCalledWith(expect.objectContaining({
+      proxyRules: 'http://203.0.113.12:3129',
+      proxyBypassRules: '<local>'
+    }))
   })
 })

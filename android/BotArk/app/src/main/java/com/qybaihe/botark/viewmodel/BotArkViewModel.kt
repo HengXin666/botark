@@ -22,6 +22,10 @@ import com.qybaihe.botark.service.DesktopBridgeClient
 import com.qybaihe.botark.service.DesktopBridgeException
 import com.qybaihe.botark.service.DirectHermesClient
 import com.qybaihe.botark.service.SecureVault
+import com.qybaihe.botark.service.SubscriptionClient
+import com.qybaihe.botark.model.SubscriptionRecord
+import com.qybaihe.botark.service.parseSubscription
+import com.qybaihe.botark.service.redactSubscriptionUrl
 import com.qybaihe.botark.service.SyncCrypto
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -40,7 +44,8 @@ data class BotArkUiState(
     val connectionState: BridgeConnectionState = BridgeConnectionState.Unpaired,
     val typingByBotId: Map<String, Boolean> = emptyMap(),
     val pairingBusy: Boolean = false,
-    val lastError: String? = null
+    val lastError: String? = null,
+    val subscriptionSummary: String = ""
 ) {
     val pendingApprovals: List<PendingApprovalItem>
         get() {
@@ -111,10 +116,13 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         val desktop = vault.loadPairedDesktop()
         val creds = vault.loadDirectHermesCredentials()
         val cached = vault.loadSnapshotCache()
+        val savedSub = vault.loadSubscription()
+        val subSummary = if (savedSub == null) "" else "上次订阅 " + savedSub.redactedUrl + "，可用节点 " + savedSub.result.nodes.size
         _uiState.value = BotArkUiState(
             snapshot = cached,
             pairedDesktop = desktop,
             directHermesCredentials = creds,
+            subscriptionSummary = subSummary,
             connectionState = if (desktop != null) {
                 BridgeConnectionState.Offline(desktop.hostName)
             } else {
@@ -126,6 +134,30 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+
+    fun fetchSubscription(rawUrl: String) {
+        val url = rawUrl.trim()
+        if (url.isBlank()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(subscriptionSummary = "正在拉取订阅...") }
+            runCatching {
+                val fetched = SubscriptionClient().fetch(url)
+                val parsed = parseSubscription(fetched.text)
+                vault.saveSubscription(SubscriptionRecord(
+                    redactedUrl = redactSubscriptionUrl(url),
+                    fetchedAtMs = fetched.meta.fetchedAtMs,
+                    result = parsed
+                ))
+                parsed
+            }.onSuccess { parsed ->
+                _uiState.update {
+                    it.copy(subscriptionSummary = "格式 " + parsed.format + "，可用节点 " + parsed.nodes.size + "，跳过 " + parsed.skipped.size + " 个非 http 端点")
+                }
+            }.onFailure { err ->
+                _uiState.update { it.copy(subscriptionSummary = "拉取失败：" + (err.message ?: "unknown error")) }
+            }
+        }
+    }
     fun pair(rawUri: String, onSuccess: () -> Unit = {}) {
         val payload = PairingPayload.parse(rawUri)
         if (payload == null) {

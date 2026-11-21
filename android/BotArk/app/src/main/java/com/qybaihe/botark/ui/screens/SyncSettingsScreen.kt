@@ -67,7 +67,9 @@ fun SyncSettingsScreen(
     onUnpair: () -> Unit,
     onOpenAddHermes: () -> Unit,
     onImportBundle: (ByteArray, String) -> Result<Int>,
-    onWipeAll: () -> Unit
+    onWipeAll: () -> Unit,
+    onFetchSubscription: (String) -> Unit = {},
+    subscriptionSummary: String = ""
 ) {
     val palette = ArkColors.current
     val context = LocalContext.current
@@ -271,6 +273,8 @@ fun SyncSettingsScreen(
                 }
             }
 
+            SubscriptionSection(onFetchSubscription, subscriptionSummary)
+
             // Section 2: Offline Encrypted Bundle
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 SectionTitle("离线同步包")
@@ -472,4 +476,44 @@ private fun SectionTitle(text: String) {
         color = palette.textSecondary,
         modifier = Modifier.padding(horizontal = 2.dp)
     )
+}
+
+@Composable
+private fun SubscriptionSection(onFetch: (String) -> Unit, summary: String) {
+    var url by remember { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        SectionTitle("远程订阅")
+        val cardShape = RoundedCornerShape(17.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(5.dp, cardShape, ambientColor = Color.Black.copy(alpha = 0.05f))
+                .clip(cardShape)
+                .border(0.8.dp, ArkColors.current.hairline, cardShape)
+                .background(ArkColors.current.surface)
+                .padding(13.dp)
+        ) {
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                placeholder = { Text("https://example.com/sub?token=...", fontSize = 12.sp) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(7.dp))
+            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = { onFetch(url.trim()) }, enabled = url.isNotBlank()) {
+                    Text("拉取订阅", fontSize = 12.5.sp)
+                }
+            }
+            if (summary.isNotBlank()) {
+                Text(summary, fontSize = 11.sp, color = ArkColors.current.textSecondary)
+            }
+            Text(
+                "支持 URI 列表、base64 订阅、Clash YAML 与 http/socks5 代理行；vless/ss 等协议节点不是 http 端点，会被跳过。",
+                fontSize = 10.sp,
+                color = ArkColors.current.textTertiary
+            )
+        }
+    }
 }

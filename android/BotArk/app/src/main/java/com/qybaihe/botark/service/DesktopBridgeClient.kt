@@ -27,6 +27,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
+import java.net.URLEncoder
 
 class DesktopBridgeException(message: String, val unauthorized: Boolean = false) : Exception(message)
 
@@ -175,7 +176,7 @@ class DesktopBridgeClient {
     ) = withContext(Dispatchers.IO) {
         val body = json.encodeToString(SendMessageBody(botId, text, clientMessageId))
         val req = Request.Builder()
-            .url("http://${desktop.activeHost}:${desktop.port}/api/mobile/v1/messages/send")
+            .url("http://${desktop.activeHost}:${desktop.port}/api/mobile/v1/bots/${URLEncoder.encode(botId, "UTF-8")}/send")
             .header("Authorization", "Bearer ${desktop.deviceToken}")
             .post(body.toRequestBody(jsonMedia))
             .build()
@@ -187,7 +188,7 @@ class DesktopBridgeClient {
 
     suspend fun stopGeneration(desktop: PairedDesktopInfo, botId: String) = withContext(Dispatchers.IO) {
         val req = Request.Builder()
-            .url("http://${desktop.activeHost}:${desktop.port}/api/mobile/v1/messages/stop")
+            .url("http://${desktop.activeHost}:${desktop.port}/api/mobile/v1/bots/${URLEncoder.encode(botId, "UTF-8")}/stop")
             .header("Authorization", "Bearer ${desktop.deviceToken}")
             .post(json.encodeToString(BotActionBody(botId)).toRequestBody(jsonMedia))
             .build()
@@ -196,7 +197,7 @@ class DesktopBridgeClient {
 
     suspend fun startNewSession(desktop: PairedDesktopInfo, botId: String) = withContext(Dispatchers.IO) {
         val req = Request.Builder()
-            .url("http://${desktop.activeHost}:${desktop.port}/api/mobile/v1/sessions/new")
+            .url("http://${desktop.activeHost}:${desktop.port}/api/mobile/v1/bots/${URLEncoder.encode(botId, "UTF-8")}/new-session")
             .header("Authorization", "Bearer ${desktop.deviceToken}")
             .post(json.encodeToString(BotActionBody(botId)).toRequestBody(jsonMedia))
             .build()
@@ -214,7 +215,7 @@ class DesktopBridgeClient {
             ApprovalDecisionBody(accountId, platformId.wireId, approvalId, decision)
         )
         val req = Request.Builder()
-            .url("http://${desktop.activeHost}:${desktop.port}/api/mobile/v1/approvals/decide")
+            .url("http://${desktop.activeHost}:${desktop.port}/api/mobile/v1/approvals/${URLEncoder.encode(accountId, "UTF-8")}/${URLEncoder.encode(approvalId, "UTF-8")}")
             .header("Authorization", "Bearer ${desktop.deviceToken}")
             .post(body.toRequestBody(jsonMedia))
             .build()
