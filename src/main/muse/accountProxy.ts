@@ -449,8 +449,21 @@ export async function assignProxyPoolToAccounts(
   const configured = await withProxyStoreLock(async () => {
     const pool = readPoolStore()
     if (pool.length === 0 || accountIds.length === 0) return [] as string[]
-    // Pool exhausted → the account keeps its current setting (no sharing).
-    const plan = planPoolAssignment(pool, accountIds, keep)
+    // Only live endpoints may be handed to an account. A dead node would
+    // replace a working direct connection with a permanently failing one.
+    const liveSlots: typeof pool = []
+    const maxProbes = Math.min(pool.length, Math.max(accountIds.length * 3, 30))
+    let probed = 0
+    for (const slot of pool) {
+      if (probed >= maxProbes || liveSlots.length >= accountIds.length) break
+      const cfg = await decryptPoolItem(slot)
+      if (!cfg || cfg.mode === "direct" || !cfg.host || !cfg.port) continue
+      probed += 1
+      const probe = await probeProxyNode(cfg)
+      if (probe.ok) liveSlots.push(slot)
+    }
+    if (liveSlots.length === 0) return [] as string[]
+    const plan = planPoolAssignment(liveSlots, accountIds, keep)
     const done: string[] = []
     for (const { accountId, slot } of plan.assigned) {
       const cfg = await decryptPoolItem(slot)
@@ -459,7 +472,12 @@ export async function assignProxyPoolToAccounts(
         done.push(accountId)
       }
     }
-    writePoolStore(plan.pool)
+    const liveIds = new Set(liveSlots.map((s) => s.id))
+    const finalPool = pool.map((s) => {
+      const assigned = plan.pool.find((p) => p.id === s.id)?.assignedAccountId
+      return liveIds.has(s.id) ? { ...s, assignedAccountId: assigned } : s
+    })
+    writePoolStore(finalPool)
     return done
   })
   for (const accountId of configured) await onAssigned?.(accountId)
@@ -549,4 +567,28 @@ export async function getProxyPoolItemSecret(id: string): Promise<ImportedProxyN
     username: cfg.username,
     password: cfg.password
   }
+}
+/** Verify a proxy endpoint can actually reach the public internet. */
+export async function probeProxyNode(
+  cfg: MuseProxyConfig,
+  timeoutMs = 6000
+): Promise<{ ok: boolean; egressIp?: string; error?: string }> {
+  if (cfg.mode === "direct" || !cfg.host || !cfg.port) return { ok: false, error: "no endpoint" }
+  const url = buildAccountProxyUrl(cfg)
+  if (!url) return { ok: false, error: "invalid endpoint" }
+  const target = "https://api.ipify.org"
+  return new Promise((resolve) => {
+    const http = require("node:https") as typeof import("node:https")
+    const agent = cfg.mode === "socks5" || cfg.mode === "socks5h"
+      ? (new SocksProxyAgent(url) as unknown as import("node:https").Agent)
+      : (new HttpsProxyAgent(url) as unknown as import("node:https").Agent)
+    const req = http.get(target, { agent, timeout: timeoutMs }, (res) => {
+      if (res.statusCode !== 200) { res.resume(); resolve({ ok: false, error: `status ${res.statusCode}` }); return }
+      let body = ""
+      res.on("data", (c) => { body += c.toString() })
+      res.on("end", () => resolve({ ok: /^\d{1,3}(\.\d{1,3}){3}$/.test(body.trim()), egressIp: body.trim() }))
+    })
+    req.on("timeout", () => { req.destroy(); resolve({ ok: false, error: "timeout" }) })
+    req.on("error", (e) => resolve({ ok: false, error: e.message }))
+  })
 }

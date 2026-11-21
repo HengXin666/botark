@@ -372,7 +372,9 @@ export function SettingsView() {
       const keepIds: string[] = []
       const res = await muse.assignProxyPool(ids, keepIds)
       setPool(res.items)
-      setHint(`已为 ${res.assignedCount} / ${ids.length} 个 Muse 账号完成一对一代理匹配`)
+      setHint(res.assignedCount > 0
+        ? `已为 ${res.assignedCount} / ${ids.length} 个账号完成一对一代理匹配（仅分配实测可出网的节点）`
+        : `池中暂无实测可出网的节点，未更改任何账号的代理设置（保持原有连接）`)
       await refreshProxiesAndPool()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
