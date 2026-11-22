@@ -2,6 +2,11 @@
 
 All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 
+## [0.10.2] - 2026-11-22
+
+### Added
+- **Per-account one-click proxy reassignment**: an "Assign an unused available proxy" button on the single-account proxy card probes the pool, drops dead nodes and binds one free, working proxy to that account immediately (with pool bookkeeping and hot-swapped session/WSS transport).
+
 ## [0.6.0] - 2026-11-18
 
 ### Changed
