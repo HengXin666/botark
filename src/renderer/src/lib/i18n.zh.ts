@@ -262,6 +262,8 @@ export const ZH: Record<string, string> = {
   "stored": "已保存",
   "Leave blank to keep": "留空则保留原密码",
   "Save proxy": "保存代理",
+  "Assign an unused available proxy": "分配一个未使用的可用代理",
+  "Assigning…": "正在分配…",
   "Proxy saved — reconnect Muse to apply WSS fully": "代理已保存 — 请重连 Muse 以完整应用 WSS",
   "Only you use this bot.": "仅你在使用此机器人。",
   "Audio": "音频",

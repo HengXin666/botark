@@ -41,6 +41,37 @@ export function releasePoolSlot<T extends PoolSlot>(pool: readonly T[], accountI
   return pool.map((slot) => (slot.assignedAccountId === accountId ? { ...slot, assignedAccountId: undefined } : slot))
 }
 
+/**
+ * Move one account onto a free, probed-live slot (single-account auto assign).
+ *
+ * `liveIds` / `deadIds` are the outcome of probing the free candidates. Dead
+ * slots are dropped, the account's previous slot is released back to the pool,
+ * and the first free live slot is handed to the account. Slots held by other
+ * accounts are never touched or shared. Returns no `chosen` when the pool has
+ * no free working node, so callers can surface an actionable recovery hint.
+ */
+export function planSinglePoolSwap<T extends PoolSlot>(
+  pool: readonly T[],
+  accountId: string,
+  liveIds: ReadonlySet<string>,
+  deadIds: ReadonlySet<string>
+): { pool: T[]; chosen?: T } {
+  // Drop probed-dead slots, but keep every assignment intact for now.
+  const survivors: T[] = pool
+    .filter((slot) => !deadIds.has(slot.id))
+    .map((slot) => ({ ...slot }))
+  const chosenId = survivors.find((s) => !s.assignedAccountId && liveIds.has(s.id))?.id
+  // No free working node: apply only the dead-node cleanup. The account keeps
+  // its current config and slot — never silently fall back to direct.
+  if (!chosenId) return { pool: survivors }
+  const poolWithSwap = survivors.map((s) => {
+    if (s.assignedAccountId === accountId) return { ...s, assignedAccountId: undefined }
+    if (s.id === chosenId) return { ...s, assignedAccountId: accountId }
+    return s
+  })
+  return { pool: poolWithSwap, chosen: poolWithSwap.find((s) => s.id === chosenId) }
+}
+
 /** Serialize async read-modify-write sections (JSON stores on disk). */
 export function createMutex(): <R>(fn: () => Promise<R> | R) => Promise<R> {
   let tail: Promise<unknown> = Promise.resolve()

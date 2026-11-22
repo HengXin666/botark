@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ShieldCheck } from 'lucide-react'
+import { ShieldCheck, Shuffle } from 'lucide-react'
 import type { MuseProxyMode, MuseProxyView } from '@shared/ipc'
 import { EmptyLine, Section } from '@/components/info/Section'
 import { Button } from '@/components/ui/Button'
@@ -35,6 +35,7 @@ export function ProxySection({ accountId }: { accountId: string }) {
   const [poolItems, setPoolItems] = useState<Array<{ id: string; mode: string; host: string; port: number }>>([])
   const [selectedPoolId, setSelectedPoolId] = useState('')
   const [picking, setPicking] = useState(false)
+  const [assigning, setAssigning] = useState(false)
 
   const refresh = useCallback(async () => {
     const muse = getBridge()?.muse
@@ -63,13 +64,20 @@ export function ProxySection({ accountId }: { accountId: string }) {
     void refresh()
   }, [refresh])
 
-  useEffect(() => {
+  const refreshPool = useCallback(async () => {
     const muse = getBridge()?.muse
     if (!muse?.listProxyPool) return
-    void muse.listProxyPool().then((items) => {
+    try {
+      const items = await muse.listProxyPool()
       setPoolItems(items.map((i) => ({ id: i.id, mode: i.mode, host: i.host, port: i.port })))
-    }).catch(() => undefined)
+    } catch {
+      /* pool may be unavailable; keep the previous list */
+    }
   }, [])
+
+  useEffect(() => {
+    void refreshPool()
+  }, [refreshPool])
 
   const pickFromPool = async (id: string) => {
     setSelectedPoolId(id)
@@ -93,6 +101,38 @@ export function ProxySection({ accountId }: { accountId: string }) {
       setPicking(false)
     }
   }
+  /** One click: probe the pool, drop dead nodes and bind a free working proxy. */
+  const assignNextAvailable = async () => {
+    const muse = getBridge()?.muse
+    if (!muse?.assignNextAvailableProxy) return
+    setAssigning(true)
+    setError(undefined)
+    setHint(undefined)
+    try {
+      const result = await muse.assignNextAvailableProxy(accountId)
+      if (!result.assigned) {
+        setError(
+          result.removed > 0
+            ? `探测 ${result.probed} 个空闲节点、剔除 ${result.removed} 个失效节点，仍没有可用节点；请到「设置 → 代理池与自动分配」同步或导入节点后再试`
+            : '代理池里没有未被占用的节点；请到「设置 → 代理池与自动分配」同步或导入节点后再试'
+        )
+        await refreshPool()
+        return
+      }
+      await Promise.all([refresh(), refreshPool()])
+      setSelectedPoolId('')
+      setHint(
+        `已自动分配并生效：${result.view.mode}://${result.view.host ?? ''}:${result.view.port ?? ''}` +
+          ` · 探测 ${result.probed} 个${result.removed > 0 ? ` · 剔除失效节点 ${result.removed} 个` : ''}` +
+          (platformId === 'meta-muse' ? ' · 建议重连 Muse 以完整应用 WSS' : '')
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setAssigning(false)
+    }
+  }
+
   const save = async () => {
     const muse = getBridge()?.muse
     if (!muse?.setProxy) return
@@ -206,6 +246,18 @@ export function ProxySection({ accountId }: { accountId: string }) {
         <Button size="sm" variant="secondary" disabled={saving} onClick={() => void save()}>
           {t('Save proxy')}
         </Button>
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={assigning || saving || picking}
+          onClick={() => void assignNextAvailable()}
+        >
+          <Shuffle className="size-3.5" aria-hidden />
+          {assigning ? t('Assigning…') : t('Assign an unused available proxy')}
+        </Button>
+        <p className="text-[10.5px] leading-snug text-ink-muted">
+          一键探测代理池，挑一个未被其他账号占用且当前可连通的节点立即替换生效；连不通的节点会自动剔除。
+        </p>
       </div>
     </Section>
   )

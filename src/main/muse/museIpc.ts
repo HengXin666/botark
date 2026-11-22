@@ -4,6 +4,7 @@ import { WebContentsViewManager } from '../webContentsViewManager'
 import { MuseSessionManager } from './museSessionManager'
 import {
   assignProxyPoolToAccounts,
+  assignOneUnusedProxy,
   clearProxyPool,
   getProxyView,
   importProxyPool,
@@ -355,6 +356,15 @@ export function registerMuseIpc(): void {
         }
       }
     )
+  })
+
+  ipcMain.handle(MUSE_CHANNELS.assignNextAvailableProxy, async (event, accountId: unknown) => {
+    if (typeof accountId !== 'string' || !accountId) throw new TypeError('Invalid accountId')
+    const result = await assignOneUnusedProxy(accountId)
+    if (!result.assigned) return result
+    await managerFor(event).applyAccountProxy(accountId).catch(() => undefined)
+    rebindNonMuseAccountStreams(accountId)
+    return result
   })
 
   ipcMain.handle(MUSE_CHANNELS.selectOption, async (event, request: unknown) => {

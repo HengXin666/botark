@@ -151,6 +151,8 @@ export interface MuseBridge {
   clearProxyPool(): Promise<MuseProxyPoolItemView[]>
   /** `keepIds`: accounts whose current slot is kept but who get no new one. */
   assignProxyPool(accountIds: string[], keepIds?: string[]): Promise<{ assignedCount: number; items: MuseProxyPoolItemView[] }>
+  /** Probe the pool and bind one free, working proxy to this account immediately. */
+  assignNextAvailableProxy(accountId: string): Promise<import('./ipc').AssignNextProxyResult>
   subscribeProxyPool(
     url: string,
     defaultMode?: Exclude<import('./ipc').MuseProxyMode, 'direct'>

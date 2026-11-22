@@ -6,7 +6,8 @@ import { join } from "node:path"
 import { app, safeStorage, session as electronSession } from "electron"
 import { partitionForAccount } from "../webContentsViewManager"
 import { readJsonFile, writeJsonAtomic } from "../jsonFile"
-import { createMutex, planPoolAssignment, releasePoolSlot } from "@shared/proxyPool"
+import { createMutex, planPoolAssignment, planSinglePoolSwap, releasePoolSlot } from "@shared/proxyPool"
+import type { AssignNextProxyResult } from "@shared/ipc"
 import { syncNodeMaintLiveNodes, type NodeMaintLiveNode } from './nodeMaint'
 import { buildAccountProxyUrl, probeProxyNode } from './proxyProbe'
 export { buildAccountProxyUrl, probeProxyNode } from './proxyProbe'
@@ -452,6 +453,57 @@ export async function applyAllStoredProxies(log: (msg: string, err: unknown) => 
   await Promise.all(
     ids.map((id) => applyProxyToPartition(id).catch((err) => log(`[proxy] ${id} not applied`, err)))
   )
+}
+
+/**
+ * Bind ONE free, probed-live pool node to `accountId` and make it effective.
+ *
+ * Unlike the bulk `assignProxyPoolToAccounts` (which re-seeds node-maint and
+ * recomputes every account), this is scoped to a single account: it probes only
+ * the UNUSED slots, drops the ones that fail, releases the account's previous
+ * slot, and saves the chosen config through the same path as `setProxy` so the
+ * partition and live Noise/WSS agent switch immediately. Returns `assigned: false`
+ * (with probe/removal counts) when the pool has no free working node, so the UI
+ * can offer a recovery action instead of silently falling back to a direct connection.
+ */
+export async function assignOneUnusedProxy(accountId: string): Promise<AssignNextProxyResult> {
+  return withProxyStoreLock(async () => {
+    const pool = readPoolStore()
+    // Only genuinely free slots are candidates; the slot currently held by
+    // this account is released (not re-picked) so a broken proxy is swapped.
+    const freeSlots = pool.filter((s) => !s.assignedAccountId)
+    const budget = Math.min(freeSlots.length, 64)
+    const liveIds = new Set<string>()
+    const deadIds = new Set<string>()
+    let probed = 0
+    const batchSize = 32
+    for (let i = 0; i < budget; i += batchSize) {
+      const slice = freeSlots.slice(i, Math.min(i + batchSize, budget))
+      const results = await Promise.all(slice.map(async (slot) => {
+        const cfg = await decryptPoolItem(slot)
+        if (!cfg || cfg.mode === "direct" || !cfg.host || !cfg.port) return { id: slot.id, ok: false }
+        const probe = await probeProxyNode(cfg, 800)
+        return { id: slot.id, ok: probe.ok }
+      }))
+      probed += results.length
+      for (const r of results) {
+        if (r.ok) liveIds.add(r.id)
+        else deadIds.add(r.id)
+      }
+      if (liveIds.size > 0) break // one working node is enough for a single account
+    }
+    const { pool: next, chosen } = planSinglePoolSwap(pool, accountId, liveIds, deadIds)
+    writePoolStore(next)
+    if (!chosen) {
+      return { assigned: false as const, probed, removed: deadIds.size }
+    }
+    const cfg = await decryptPoolItem(chosen)
+    if (!cfg || cfg.mode === "direct" || !cfg.host || !cfg.port) {
+      return { assigned: false as const, probed, removed: deadIds.size }
+    }
+    const view = await saveProxyConfigUnlocked(accountId, cfg)
+    return { assigned: true as const, view, probed, removed: deadIds.size }
+  })
 }
 
 export interface ImportedProxyNode {

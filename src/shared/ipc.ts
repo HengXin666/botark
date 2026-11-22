@@ -92,6 +92,7 @@ export const MUSE_CHANNELS = {
   removeProxyPoolItem: 'bothub:muse:proxy-pool:remove',
   clearProxyPool: 'bothub:muse:proxy-pool:clear',
   assignProxyPool: 'bothub:muse:proxy-pool:assign',
+  assignNextAvailableProxy: 'bothub:muse:proxy-pool:assign-next',
   subscribeProxyPool: 'bothub:muse:proxy-pool:subscribe',
   listSubscriptionSources: 'bothub:muse:proxy-pool:subscription-sources',
   reimportProxyConfigs: 'bothub:muse:proxy-pool:reimport',
@@ -294,6 +295,11 @@ export interface MuseProxyPoolItemView {
   hasPassword: boolean
   assignedAccountId?: string
 }
+
+/** Outcome of a single-account "assign next available proxy" action. */
+export type AssignNextProxyResult =
+  | { assigned: true; view: MuseProxyView; probed: number; removed: number }
+  | { assigned: false; probed: number; removed: number }
 
 export type MuseMainEvent =
   | { type: 'status'; status: MuseSessionStatus }
