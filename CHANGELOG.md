@@ -2,6 +2,16 @@
 
 All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 
+## [0.10.3] - 2026-11-24
+
+### Added
+- **Hark project workspace**: Hark bots now open a project page first, listing the main conversation and every project, with search, a one-click "New project" composer, and native chat scoped to the selected project conversation.
+- **Hark working-state avatar**: Hark conversation status is polled continuously; whenever any project is `working`, the account turns busy and the character avatar shows its working/loading state.
+- **Linux completion notification**: when a Hark project leaves `working`, a Linux desktop notification ("Hark 已完成") names the project and opens it on click.
+
+### Changed
+- **Hark send routing**: outgoing messages use the selected project conversation id, while the main conversation keeps its server-side refresh and stale-id fallback.
+
 ## [0.10.2] - 2026-11-22
 
 ### Added
