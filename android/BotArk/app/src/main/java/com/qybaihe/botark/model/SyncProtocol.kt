@@ -95,6 +95,7 @@ data class SyncedHarkProject(
     val title: String? = null,
     val favorite: Boolean = false,
     val archivedAt: String? = null,
+    val createdAt: String? = null,
     val activityAt: String = "",
     val status: String? = null
 )

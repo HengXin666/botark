@@ -9,6 +9,7 @@ All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 - **Portable proxy nodes**: verified vless URIs are delivered natively to the phone, while desktop-local HTTP/SOCKS nodes are exposed through authenticated LAN SOCKS relay listeners; proxy credentials travel inside the one-time QR AES payload or the encrypted offline bundle and are stored in Android Keystore.
 - **Android multi-protocol proxy + unused-node preference**: the bundled mihomo core accepts vless, HTTP and SOCKS5 nodes from sync/subscriptions, and the proxy group uses a fallback health check over an unused-first ordering to auto-select a working node.
 - **Hark project list, working shortcuts and delete**: desktop and Android now show Hark projects in a recency-first list, surface every `working` project as a quick-switch entry, and allow deleting stuck project conversations from either client.
+- **Hark project state badges**: each project now distinguishes `working`, `unread`, `completed` and `not started`, so an idle project no longer looks identical whether it has never received a task or has just finished one.
 - **Resume last Hark conversation**: an opt-in (default on) setting restores the last project chat on first open; with no history it opens the single working project, or the project page with a working list when several are active.
 
 ### Fixed

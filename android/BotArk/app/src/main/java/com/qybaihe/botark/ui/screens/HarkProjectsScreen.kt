@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Refresh
@@ -193,6 +194,10 @@ private fun HarkProjectRow(bot: SyncedBot, project: SyncedHarkProject, isWorking
                     Spacer(Modifier.width(6.dp)); Box(Modifier.size(6.dp).clip(CircleShape).background(palette.accent)); Spacer(Modifier.width(3.dp)); Text("工作中", fontSize = 10.sp, color = palette.accent)
                 } else if (project.status.equals("unread", ignoreCase = true)) {
                     Spacer(Modifier.width(6.dp)); Text("未读", fontSize = 10.sp, color = palette.amber)
+                } else if (harkHasHistory(project)) {
+                    Spacer(Modifier.width(6.dp)); Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = palette.emerald, modifier = Modifier.size(13.dp)); Text("已完成", fontSize = 10.sp, color = palette.emerald)
+                } else {
+                    Spacer(Modifier.width(6.dp)); Box(Modifier.size(5.dp).clip(CircleShape).background(palette.textTertiary)); Spacer(Modifier.width(3.dp)); Text("未开始", fontSize = 10.sp, color = palette.textTertiary)
                 }
             }
             Spacer(Modifier.height(3.dp))
@@ -204,6 +209,12 @@ private fun HarkProjectRow(bot: SyncedBot, project: SyncedHarkProject, isWorking
             }
         }
     }
+}
+
+fun harkHasHistory(project: SyncedHarkProject): Boolean {
+    val activity = runCatching { Instant.parse(project.activityAt) }.getOrNull() ?: return false
+    val created = project.createdAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return true
+    return Duration.between(created, activity).toMillis() > 2_000
 }
 
 private fun formatHarkActivity(value: String): String {

@@ -5,6 +5,8 @@ export interface HarkProjectSummary {
   title: string | null
   favorite: boolean
   archivedAt: string | null
+  /** Conversation creation time, used to distinguish a never-used project from one with task history. */
+  createdAt?: string
   activityAt: string
   status?: string
 }
@@ -33,6 +35,7 @@ export function parseHarkConversations(data: unknown): HarkProjectSummary[] {
       title: asString(raw['title']) || null,
       favorite: raw['favorite'] === true,
       archivedAt: asString(raw['archivedAt']) || null,
+      createdAt: asString(raw['createdAt']) || undefined,
       activityAt:
         asString(raw['activityAt']) ||
         asString(raw['updatedAt']) ||
@@ -59,4 +62,15 @@ export function harkProjectTitle(project: Pick<HarkProjectSummary, 'title' | 'ki
 export function harkActivityTime(project: Pick<HarkProjectSummary, 'activityAt'>): number {
   const time = Date.parse(project.activityAt)
   return Number.isFinite(time) ? time : 0
+}
+
+/** True when a project has message/task activity beyond the instant it was created. */
+export function harkHasHistory(
+  project: Pick<HarkProjectSummary, 'activityAt'> & { createdAt?: string }
+): boolean {
+  const activity = Date.parse(project.activityAt)
+  if (!Number.isFinite(activity)) return false
+  const created = project.createdAt ? Date.parse(project.createdAt) : NaN
+  if (!Number.isFinite(created)) return true
+  return activity - created > 2_000
 }

@@ -54,6 +54,7 @@ function buildWorkspaceSnapshot(): MobileWorkspaceSnapshot {
               title: project.title,
               favorite: project.favorite,
               archivedAt: project.archivedAt,
+              createdAt: project.createdAt,
               activityAt: project.activityAt,
               ...(b.harkProjectStatuses?.[project.id]
                 ? { status: b.harkProjectStatuses[project.id] }

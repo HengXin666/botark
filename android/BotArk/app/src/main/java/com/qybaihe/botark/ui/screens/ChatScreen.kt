@@ -59,6 +59,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qybaihe.botark.model.ConnectionStatus
+import com.qybaihe.botark.model.PlatformId
 import com.qybaihe.botark.model.PendingApprovalItem
 import com.qybaihe.botark.model.SyncedBot
 import com.qybaihe.botark.model.SyncedMessage
@@ -99,6 +100,12 @@ fun ChatScreen(
     val isTyping = state.typingByBotId[bot.id] == true
     val canSend = state.canSend(bot)
     val botStatus = state.status(bot)
+    val harkProject = bot.harkProjects.firstOrNull { it.id == bot.activeSessionId }
+    val harkCompleted = bot.platformId == PlatformId.HARK &&
+        bot.activeSessionId != null &&
+        !isTyping &&
+        harkProject?.status?.equals("working", ignoreCase = true) != true &&
+        harkProject?.let { harkHasHistory(it) } == true
     var draft by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -154,6 +161,11 @@ fun ChatScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
+                    if (harkCompleted) {
+                        Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = palette.emerald, modifier = Modifier.size(11.dp))
+                        Text("已完成", fontSize = 10.5.sp, color = palette.emerald)
+                        Spacer(Modifier.width(3.dp))
+                    }
                     LivingPulseDot(
                         color = botStatus.dotColor(),
                         size = 5.5.dp,

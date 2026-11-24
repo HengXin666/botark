@@ -1,4 +1,4 @@
-import { ChevronRight, FolderKanban, Globe, MessageSquarePlus, PanelRight, Pin, PinOff, RefreshCw } from 'lucide-react'
+import { CheckCircle2, ChevronRight, FolderKanban, Globe, MessageSquarePlus, PanelRight, Pin, PinOff, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { PaneHeader } from '@/components/layout/PaneHeader'
 import { getPlatformInspector } from '@/components/info/platformInspector'
@@ -8,6 +8,7 @@ import { STATUS_LABEL } from '@/components/ui/Status'
 import { getBridge } from '@/lib/bridge'
 import { cn } from '@/lib/cn'
 import { getBotStatus } from '@/lib/selectors'
+import { harkHasHistory } from '@shared/harkProjects'
 import { shortcutLabel } from '@/lib/shortcuts'
 import { useBotStore } from '@/store/botStore'
 import { adapterRegistry } from '@adapters/registry'
@@ -71,7 +72,20 @@ export function ChatHeader({ bot, accounts: _accounts }: ChatHeaderProps) {
   const setSelectedAgent = useBotStore((s) => s.setSelectedAgent)
   const connectAccount = useBotStore((s) => s.connectAccount)
   const typing = useBotStore((s) => s.typing[bot.id] === true)
+  const activity = useBotStore((s) => s.activity[bot.activeAccountId])
+  const lastMessage = useBotStore((s) => s.messages[bot.id]?.at(-1))
   const activeAccount = allAccounts[bot.activeAccountId]
+  const activeHarkProject = bot.platformId === 'hark'
+    ? bot.harkProjects?.find((project) => project.id === bot.activeSessionId)
+    : undefined
+  const harkCompleted = Boolean(
+    bot.platformId === 'hark' &&
+      bot.activeSessionId &&
+      !typing &&
+      !activity?.busy &&
+      activeHarkProject?.status !== 'working' &&
+      (activeHarkProject ? harkHasHistory(activeHarkProject) : lastMessage?.role === 'bot')
+  )
   const inspector = getPlatformInspector(bot.platformId)
   const [startingFresh, setStartingFresh] = useState(false)
 
@@ -112,7 +126,6 @@ export function ChatHeader({ bot, accounts: _accounts }: ChatHeaderProps) {
   }
 
   const status = getBotStatus(bot, allAccounts)
-  const activity = useBotStore((s) => s.activity[bot.activeAccountId])
   const activityLine = activity
     ? `${activity.emoji ? activity.emoji + ' ' : ''}${activity.text || (activity.busy ? t('Working…') : '')}${
         activity.subagents && activity.subagents > 0 ? ` · ${activity.subagents} subagents` : ''
@@ -124,6 +137,11 @@ export function ChatHeader({ bot, accounts: _accounts }: ChatHeaderProps) {
   return (
     <PaneHeader className="gap-3 pr-3">
       <div className="flex min-w-0 flex-1 items-center gap-2">
+        {harkCompleted && (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-status-online/10 px-2 py-0.5 text-[10.5px] font-medium text-status-online-ink">
+            <CheckCircle2 className="size-3" aria-hidden />已完成
+          </span>
+        )}
         {activityLine ? (
           <span
             className="hidden min-w-0 truncate text-[12px] text-ink-muted shimmer-text sm:inline"

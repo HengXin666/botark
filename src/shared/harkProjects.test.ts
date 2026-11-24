@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { harkActivityTime, harkProjectTitle, parseHarkConversations, parseHarkStatuses } from './harkProjects'
+import { harkActivityTime, harkHasHistory, harkProjectTitle, parseHarkConversations, parseHarkStatuses } from './harkProjects'
 
 describe('harkProject helpers', () => {
   it('parses conversations and keeps recency metadata', () => {
@@ -24,5 +24,12 @@ describe('harkProject helpers', () => {
     expect(harkProjectTitle({ kind: 'project', title: '   ' })).toBe('未命名项目')
     expect(harkActivityTime({ activityAt: 'bad' })).toBe(0)
     expect(harkActivityTime({ activityAt: '2026-11-24T12:00:00.000Z' })).toBe(Date.parse('2026-11-24T12:00:00.000Z'))
+  })
+
+  it('detects whether a project has task history', () => {
+    expect(harkHasHistory({ createdAt: '2026-11-24T12:00:00.000Z', activityAt: '2026-11-24T12:00:00.000Z' })).toBe(false)
+    expect(harkHasHistory({ createdAt: '2026-11-24T12:00:00.000Z', activityAt: '2026-11-24T12:01:00.000Z' })).toBe(true)
+    expect(harkHasHistory({ activityAt: '2026-11-24T12:01:00.000Z' })).toBe(true)
+    expect(harkHasHistory({ activityAt: 'bad' })).toBe(false)
   })
 })

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, ChevronRight, FolderKanban, Loader2, Plus, RefreshCw, Search, Star, Trash2 } from 'lucide-react'
+import { AlertCircle, CheckCircle2, ChevronRight, FolderKanban, Loader2, Plus, RefreshCw, Search, Star, Trash2 } from 'lucide-react'
 import { PaneHeader } from '@/components/layout/PaneHeader'
 import { BotAvatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
@@ -9,7 +9,7 @@ import { getBridge } from '@/lib/bridge'
 import { cn } from '@/lib/cn'
 import { useBotStore } from '@/store/botStore'
 import type { Bot } from '@/types'
-import { harkActivityTime, harkProjectTitle, parseHarkConversations, parseHarkStatuses, type HarkProjectSummary } from '@shared/harkProjects'
+import { harkActivityTime, harkHasHistory, harkProjectTitle, parseHarkConversations, parseHarkStatuses, type HarkProjectSummary } from '@shared/harkProjects'
 
 type HarkConversation = HarkProjectSummary
 
@@ -49,14 +49,17 @@ function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error ?? '')).trim() || '操作失败，请稍后重试'
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, completed }: { status: string; completed: boolean }) {
   if (status === 'working') {
     return <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-600/10 px-2 py-0.5 text-[10.5px] font-medium text-accent-600"><span className="size-1.5 animate-pulse rounded-full bg-accent-600" aria-hidden />工作中</span>
   }
   if (status === 'unread') {
     return <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-status-attention/10 px-2 py-0.5 text-[10.5px] font-medium text-status-attention-ink"><span className="size-1.5 rounded-full bg-status-attention" aria-hidden />未读</span>
   }
-  return null
+  if (completed) {
+    return <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-status-online/10 px-2 py-0.5 text-[10.5px] font-medium text-status-online-ink"><CheckCircle2 className="size-3" aria-hidden />已完成</span>
+  }
+  return <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-hover px-2 py-0.5 text-[10.5px] font-medium text-ink-muted"><span className="size-1.5 rounded-full bg-ink-faint" aria-hidden />未开始</span>
 }
 
 function ConversationRow({ bot, conversation, status, opening, deleting, featured = false, onOpen, onDelete }: {
@@ -83,7 +86,7 @@ function ConversationRow({ bot, conversation, status, opening, deleting, feature
           <span className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className={cn('min-w-0 max-w-full truncate font-medium text-ink', featured ? 'text-[14px]' : 'text-[13px]')}>{title}</span>
             {conversation.favorite && <Star className="size-3.5 shrink-0 fill-status-attention text-status-attention" aria-label="已收藏" />}
-            <StatusBadge status={status ?? ''} />
+            <StatusBadge status={status ?? ''} completed={harkHasHistory(conversation)} />
           </span>
           <span className="mt-1 flex min-w-0 items-center gap-2 text-[11.5px] text-ink-muted">
             {conversation.kind === 'main' && <span className="shrink-0">默认会话</span>}

@@ -38,6 +38,7 @@ export interface MobileSyncedHarkProject {
   title: string | null
   favorite: boolean
   archivedAt: string | null
+  createdAt?: string
   activityAt: string
   status?: string
 }
