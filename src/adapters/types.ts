@@ -271,6 +271,8 @@ export type AdapterEvent =
   | { type: 'message'; message: IncomingMessage & { widgets?: MuseOptionWidget[]; richWidgets?: MuseRichWidget[]; tools?: MuseToolCall[]; media?: MuseMediaPart[] } }
   | { type: 'message_delta'; messageId: string; conversationId: string; accountId: string; text: string; sessionId?: string; widgets?: MuseOptionWidget[]; richWidgets?: MuseRichWidget[]; tools?: MuseToolCall[]; media?: MuseMediaPart[] }
   | { type: 'typing'; conversationId: string; accountId: string; isTyping: boolean }
+  | { type: 'harkCompleted'; accountId: string; conversationId: string }
+  | { type: 'harkStatus'; accountId: string; statuses: Record<string, string> }
   | { type: 'status'; accountId: string; status: ConnectionStatus; detail?: string }
   | { type: 'activity'; accountId: string; activity: AgentActivity }
   | { type: 'approvals'; accountId: string; pending: MuseApproval[] }

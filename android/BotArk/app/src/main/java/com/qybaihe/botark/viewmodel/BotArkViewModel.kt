@@ -16,6 +16,7 @@ import com.qybaihe.botark.model.PlatformId
 import com.qybaihe.botark.model.SyncedAccount
 import com.qybaihe.botark.model.SyncedBot
 import com.qybaihe.botark.model.SyncedGroup
+import com.qybaihe.botark.model.SyncedHarkProject
 import com.qybaihe.botark.model.SyncedMessage
 import com.qybaihe.botark.model.WorkspaceSnapshot
 import com.qybaihe.botark.service.DesktopBridgeClient
@@ -52,7 +53,8 @@ data class BotArkUiState(
     val subscriptionSummary: String = "",
     val vpnRunning: Boolean = false,
     val vpnNodeCount: Int = 0,
-    val vpnMessage: String = ""
+    val vpnMessage: String = "",
+    val harkResumeLast: Boolean = true
 ) {
     val pendingApprovals: List<PendingApprovalItem>
         get() {
@@ -108,6 +110,7 @@ data class BotArkUiState(
 
 class BotArkViewModel(application: Application) : AndroidViewModel(application) {
     private val vault = SecureVault(application)
+    private val uiPrefs = application.getSharedPreferences("botark_ui_prefs", Application.MODE_PRIVATE)
     private val bridge = DesktopBridgeClient()
     private val directHermes = DirectHermesClient()
     private val json = Json { ignoreUnknownKeys = true }
@@ -130,6 +133,7 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
             pairedDesktop = desktop,
             directHermesCredentials = creds,
             subscriptionSummary = subSummary,
+            harkResumeLast = uiPrefs.getBoolean("hark_resume_last", true),
             connectionState = if (desktop != null) {
                 BridgeConnectionState.Offline(desktop.hostName)
             } else {
@@ -546,6 +550,68 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         markDelivery(bot.id, clientMsgId, "failed", "电脑端未连接")
+    }
+
+    fun setHarkResumeLast(enabled: Boolean) {
+        uiPrefs.edit().putBoolean("hark_resume_last", enabled).apply()
+        _uiState.update { it.copy(harkResumeLast = enabled) }
+    }
+
+    private fun harkDesktop(): PairedDesktopInfo? {
+        val state = _uiState.value
+        return state.pairedDesktop?.takeIf { state.connectionState.isBridgeConnected }
+    }
+
+    fun refreshHarkProjects(bot: SyncedBot) {
+        val desktop = harkDesktop() ?: run {
+            _uiState.update { it.copy(lastError = "电脑端未连接，无法刷新 Hark 项目") }
+            return
+        }
+        viewModelScope.launch {
+            runCatching { bridge.harkAction(desktop, bot.id, "refresh") }
+                .onFailure { e -> _uiState.update { it.copy(lastError = e.message) } }
+        }
+    }
+
+    fun openHarkProject(bot: SyncedBot, project: SyncedHarkProject) {
+        val desktop = harkDesktop() ?: run {
+            _uiState.update { it.copy(lastError = "电脑端未连接，无法打开 Hark 项目") }
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                bridge.harkAction(
+                    desktop,
+                    bot.id,
+                    "open",
+                    project.id,
+                    project.title ?: if (project.kind == "main") "主对话" else "未命名项目",
+                    project.kind
+                )
+            }.onFailure { e -> _uiState.update { it.copy(lastError = e.message) } }
+        }
+    }
+
+    fun deleteHarkProject(bot: SyncedBot, conversationId: String) {
+        val desktop = harkDesktop() ?: run {
+            _uiState.update { it.copy(lastError = "电脑端未连接，无法删除 Hark 项目") }
+            return
+        }
+        viewModelScope.launch {
+            runCatching { bridge.harkAction(desktop, bot.id, "delete", conversationId) }
+                .onFailure { e -> _uiState.update { it.copy(lastError = e.message) } }
+        }
+    }
+
+    fun showHarkProjects(bot: SyncedBot) {
+        val desktop = harkDesktop() ?: run {
+            _uiState.update { it.copy(lastError = "电脑端未连接") }
+            return
+        }
+        viewModelScope.launch {
+            runCatching { bridge.harkAction(desktop, bot.id, "show") }
+                .onFailure { e -> _uiState.update { it.copy(lastError = e.message) } }
+        }
     }
 
     fun stopGeneration(bot: SyncedBot) {

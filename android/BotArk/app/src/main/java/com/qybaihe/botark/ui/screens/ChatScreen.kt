@@ -29,6 +29,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Terminal
@@ -78,6 +79,7 @@ fun ChatScreen(
     state: BotArkUiState,
     botId: String,
     onBack: () -> Unit,
+    onOpenProjects: (() -> Unit)? = null,
     onSend: (SyncedBot, String) -> Unit,
     onStop: (SyncedBot) -> Unit,
     onNewSession: (SyncedBot) -> Unit,
@@ -162,6 +164,14 @@ fun ChatScreen(
                         fontSize = 10.5.sp,
                         color = palette.textSecondary
                     )
+                }
+            }
+            if (onOpenProjects != null) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(34.dp).clip(CircleShape).background(palette.surface).border(0.8.dp, palette.hairline, CircleShape).clickable(onClick = onOpenProjects)
+                ) {
+                    Icon(Icons.Rounded.FolderOpen, contentDescription = "项目", tint = palette.textPrimary, modifier = Modifier.size(18.dp))
                 }
             }
             if (bot.platformId.supportsQuickNewSession) {

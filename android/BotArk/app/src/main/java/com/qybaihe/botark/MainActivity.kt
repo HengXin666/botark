@@ -63,6 +63,7 @@ import com.qybaihe.botark.ui.screens.BotListScreen
 import com.qybaihe.botark.ui.screens.ChatScreen
 import com.qybaihe.botark.ui.screens.QRScannerSheet
 import com.qybaihe.botark.ui.screens.StandaloneWebScreen
+import com.qybaihe.botark.ui.screens.HarkProjectsScreen
 import com.qybaihe.botark.ui.screens.SyncSettingsScreen
 import com.qybaihe.botark.ui.theme.ArkColors
 import com.qybaihe.botark.ui.theme.ArkMonoFamily
@@ -190,6 +191,12 @@ private fun BotArkRoot(
     ) {
         if (activeBotId != null && currentTab == MainTab.CHATS) {
             val activeBot = state.snapshot.bots.firstOrNull { it.id == activeBotId }
+            val isHark = activeBot?.platformId == PlatformId.HARK
+            val harkProjectMode = isHark && (
+                !state.harkResumeLast ||
+                    activeBot?.harkProjectsOpen == true ||
+                    activeBot?.activeSessionId.isNullOrBlank()
+                )
             if (activeBot?.isStandaloneWeb == true) {
                 StandaloneWebScreen(
                     state = state,
@@ -197,11 +204,22 @@ private fun BotArkRoot(
                     onBack = { activeBotId = null },
                     onRemoveBot = { viewModel.removeStandaloneBot(it) }
                 )
+            } else if (isHark && harkProjectMode) {
+                HarkProjectsScreen(
+                    state = state,
+                    botId = activeBotId!!,
+                    onBack = { activeBotId = null },
+                    onOpenProject = { bot, project -> viewModel.openHarkProject(bot, project) },
+                    onDeleteProject = { bot, conversationId -> viewModel.deleteHarkProject(bot, conversationId) },
+                    onRefresh = { bot -> viewModel.refreshHarkProjects(bot) },
+                    onToggleResume = { enabled -> viewModel.setHarkResumeLast(enabled) }
+                )
             } else {
                 ChatScreen(
                     state = state,
                     botId = activeBotId!!,
                     onBack = { activeBotId = null },
+                    onOpenProjects = if (isHark && activeBot != null) ({ viewModel.showHarkProjects(activeBot) }) else null,
                     onSend = { bot, text -> viewModel.sendMessage(bot, text) },
                     onStop = { bot -> viewModel.stopGeneration(bot) },
                     onNewSession = { bot -> viewModel.startNewSession(bot) },

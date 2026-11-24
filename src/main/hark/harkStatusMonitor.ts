@@ -187,10 +187,15 @@ async function pollAccount(accountId: string): Promise<void> {
       conversationId,
       title: titleFor(watch, conversationId)
     }))
+    const workingIds = Object.entries(next).filter(([, value]) => value === 'working').map(([id]) => id)
+    const previousWorkingIds = Object.entries(previous).filter(([, value]) => value === 'working').map(([id]) => id)
+    if (completedIds.length > 0 || previousWorkingIds.join(',') !== workingIds.join(',')) {
+      console.info('[hark] status', accountId, JSON.stringify({ working: workingIds, completed: completedIds }))
+    }
     emitStatusEvent({ type: 'conversationStatus', accountId, statuses: next, previous, completed })
     for (const item of completed) showCompletedNotification(accountId, item.conversationId, item.title)
   } catch (error) {
-    console.warn('[hark] status', accountId, errorMessage(error))
+    console.warn('[hark] status', accountId, 'poll failed:', errorMessage(error))
   } finally {
     watch.inFlight = false
   }

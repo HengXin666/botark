@@ -6,6 +6,7 @@ import { AdapterError, type AttachmentMeta, type ConnectionStatus, type Incoming
 import { createId } from '@shared/id'
 import { createSeed } from '@/data/seed'
 import type { AccountDraft, Bot, BotAccount, BotGroup, ChatMessage, ChatReplyTarget, NewBotInput } from '@/types'
+import { parseHarkConversations, parseHarkStatuses, type HarkProjectSummary } from '@shared/harkProjects'
 import { clearNoReplyFlag, createSafeStorage, sanitizePersisted, SEND_HARD_TIMEOUT_MS, SendTimeoutError, toPersistedMessages, withTimeout, deliveryAfterError, createInFlightSet, hasLostAttachments, ATTACHMENTS_LOST_TEXT } from './delivery'
 
 let warnedStorage = false
@@ -76,6 +77,8 @@ export interface BotHubState {
   replyingTo: Record<string, ChatReplyTarget | undefined>
   /** Per-account Grok agentIds explicitly removed from sidebar so auto-sync respects user deletion until manual sync. */
   dismissedGrokAgents: Record<string, string[]>
+  /** Hark: open the last active conversation on launch instead of the project list. */
+  harkResumeLastConversation: boolean
 
   // Navigation & layout
   selectBot: (botId: string) => void
@@ -153,6 +156,14 @@ export interface BotHubState {
   ) => Promise<void>
   /** Hark: leave the active chat and show the project list. */
   showHarkProjects: (botId: string) => void
+  /** Hark: refresh conversations + statuses and mirror them into the mobile snapshot. */
+  refreshHarkProjects: (botId: string) => Promise<void>
+  /** Hark: delete a project conversation in the cloud and remove it locally. */
+  deleteHarkConversation: (botId: string, conversationId: string) => Promise<void>
+  /** Hark: cache the project list/statuses for mobile sync. */
+  setHarkProjectData: (botId: string, projects: HarkProjectSummary[], statuses: Record<string, string>) => void
+  /** Hark: restore the last active conversation on launch (default true). */
+  setHarkResumeLastConversation: (enabled: boolean) => void
 
   // Bot details
   updateNotes: (botId: string, notes: string) => void
@@ -589,6 +600,7 @@ export const useBotStore = create<BotHubState>()(
     activeDocument: null,
     replyingTo: {},
     dismissedGrokAgents: {},
+    harkResumeLastConversation: true,
 
     setActiveDocument: (doc) => set({ activeDocument: doc }),
 
@@ -1503,6 +1515,80 @@ export const useBotStore = create<BotHubState>()(
       patchBot(botId, () => ({ harkProjectsOpen: true }))
     },
 
+    setHarkProjectData: (botId, projects, statuses) =>
+      patchBot(botId, () => ({
+        harkProjects: projects,
+        harkProjectStatuses: statuses,
+        harkProjectsUpdatedAt: Date.now()
+      })),
+
+    setHarkResumeLastConversation: (enabled) =>
+      set({ harkResumeLastConversation: enabled }),
+
+    refreshHarkProjects: async (botId) => {
+      const bot = get().bots.find((b) => b.id === botId)
+      if (!bot || bot.platformId !== 'hark') return
+      const bridge = electronBridge()
+      if (!bridge?.hark?.rpc) throw new Error('Hark IPC 不可用，请在桌面客户端中使用')
+      const [conversations, statuses] = await Promise.all([
+        bridge.hark.rpc({ accountId: bot.activeAccountId, op: 'listConversations' }),
+        bridge.hark.rpc({ accountId: bot.activeAccountId, op: 'conversationStatus' }).catch(() => null)
+      ])
+      if (!conversations.ok) {
+        throw new Error(conversations.message || `加载项目失败（HTTP ${conversations.status}）`)
+      }
+      const projects = parseHarkConversations(conversations.data)
+      const statusMap = statuses?.ok ? parseHarkStatuses(statuses.data) : {}
+      patchBot(botId, () => ({
+        harkProjects: projects,
+        harkProjectStatuses: statusMap,
+        harkProjectsUpdatedAt: Date.now()
+      }))
+    },
+
+    deleteHarkConversation: async (botId, conversationId) => {
+      const bot = get().bots.find((b) => b.id === botId)
+      if (!bot || bot.platformId !== 'hark') return
+      const bridge = electronBridge()
+      if (!bridge?.hark?.rpc) throw new Error('Hark IPC 不可用，请在桌面客户端中使用')
+      const result = await bridge.hark.rpc({
+        accountId: bot.activeAccountId,
+        op: 'call',
+        method: 'DELETE',
+        path: `/conversations/${encodeURIComponent(conversationId)}`
+      })
+      if (!result.ok && result.status !== 404) {
+        throw new Error(result.message || `删除项目失败（HTTP ${result.status}）`)
+      }
+      const deletingActive = bot.activeSessionId === conversationId
+      set((state) => ({
+        bots: state.bots.map((item) => {
+          if (item.id !== botId) return item
+          const nextStatuses = { ...(item.harkProjectStatuses ?? {}) }
+          delete nextStatuses[conversationId]
+          return {
+            ...item,
+            harkProjects: (item.harkProjects ?? []).filter((project) => project.id !== conversationId),
+            harkProjectStatuses: nextStatuses,
+            ...(deletingActive
+              ? {
+                  activeSessionId: undefined,
+                  activeSessionTitle: undefined,
+                  activeSessionKind: undefined,
+                  harkProjectsOpen: true
+                }
+              : {})
+          }
+        }),
+        messages: {
+          ...state.messages,
+          [botId]: deletingActive
+            ? []
+            : (state.messages[botId] ?? []).filter((message) => message.sessionId !== conversationId)
+        }
+      }))
+    },
+
     updateNotes: (botId, notes) => patchBot(botId, () => ({ notes })),
 
     addMemory: (botId, text) => {
@@ -2317,16 +2403,23 @@ export const useBotStore = create<BotHubState>()(
     // Nothing is in flight after a restart; drop stale `sending`/`pending`.
     merge: (persisted, current) => {
       const restored = sanitizePersisted((persisted ?? {}) as Partial<BotHubState>)
+      const resumeLast = restored.harkResumeLastConversation !== false
       return {
         ...current,
         ...restored,
-        // Hark always lands on the project list after a restart. The active
-        // project itself remains in memory via openHarkConversation.
-        bots: (restored.bots ?? current.bots).map((bot) =>
-          bot.platformId === 'hark'
-            ? { ...bot, harkProjectsOpen: true, activeSessionTitle: undefined, activeSessionKind: undefined }
-            : bot
-        )
+        // Hark restores the last active project when the user opted in (default).
+        // If there is no project chat yet, the project page opens instead.
+        bots: (restored.bots ?? current.bots).map((bot) => {
+          if (bot.platformId !== 'hark') return bot
+          const canResume = resumeLast && Boolean(bot.activeSessionId)
+          return {
+            ...bot,
+            harkProjectsOpen: !canResume,
+            ...(canResume
+              ? {}
+              : { activeSessionTitle: undefined, activeSessionKind: undefined })
+          }
+        })
       }
     },
     partialize: (state) => ({
@@ -2337,6 +2430,7 @@ export const useBotStore = create<BotHubState>()(
       selectedBotId: state.selectedBotId,
       collapsedGroups: state.collapsedGroups,
       dismissedGrokAgents: state.dismissedGrokAgents,
+      harkResumeLastConversation: state.harkResumeLastConversation,
       infoPanelOpen: state.infoPanelOpen,
       sidebarCollapsed: state.sidebarCollapsed,
       sidebarWidth: state.sidebarWidth

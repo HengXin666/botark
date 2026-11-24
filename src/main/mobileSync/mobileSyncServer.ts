@@ -642,6 +642,46 @@ code{color:#93c5fd}</style></head><body><div class="card">
         return
       }
 
+      if (method === 'POST' && pathname === '/api/mobile/v1/hark/action') {
+        const body = await readJsonBody(req)
+        const botId = typeof body['botId'] === 'string' ? body['botId'] : ''
+        const action = typeof body['action'] === 'string' ? body['action'] : ''
+        if (!botId || !action) {
+          sendJson(res, 400, { ok: false, message: 'botId and action are required' })
+          return
+        }
+        if (action === 'open') {
+          const conversationId = typeof body['conversationId'] === 'string' ? body['conversationId'] : ''
+          if (!conversationId) {
+            sendJson(res, 400, { ok: false, message: 'conversationId is required' })
+            return
+          }
+          this.options.onCommand?.({
+            kind: 'harkOpenConversation',
+            botId,
+            conversationId,
+            title: typeof body['title'] === 'string' ? body['title'] : undefined,
+            conversationKind: body['conversationKind'] === 'main' ? 'main' : 'project'
+          })
+        } else if (action === 'delete') {
+          const conversationId = typeof body['conversationId'] === 'string' ? body['conversationId'] : ''
+          if (!conversationId) {
+            sendJson(res, 400, { ok: false, message: 'conversationId is required' })
+            return
+          }
+          this.options.onCommand?.({ kind: 'harkDeleteConversation', botId, conversationId })
+        } else if (action === 'refresh') {
+          this.options.onCommand?.({ kind: 'harkRefreshProjects', botId })
+        } else if (action === 'show') {
+          this.options.onCommand?.({ kind: 'harkShowProjects', botId })
+        } else {
+          sendJson(res, 400, { ok: false, message: 'unknown hark action' })
+          return
+        }
+        sendJson(res, 200, { ok: true, acceptedAt: Date.now() })
+        return
+      }
+
       const approvalMatch = /^\/api\/mobile\/v1\/approvals\/([^/]+)\/([^/]+)$/.exec(pathname)
       if (method === 'POST' && approvalMatch) {
         const accountId = decodeURIComponent(approvalMatch[1]!)

@@ -4,6 +4,7 @@ import type {
   PlatformAccount,
   PlatformId
 } from '@adapters/types'
+import type { HarkProjectSummary } from '@shared/harkProjects'
 
 /** A platform account as tracked by BotHub (accounts can back several bots). */
 export interface BotAccount extends PlatformAccount {
@@ -56,6 +57,12 @@ export interface Bot {
   activeSessionKind?: 'main' | 'project'
   /** Hark: true/undefined shows the project list; false shows the active conversation. */
   harkProjectsOpen?: boolean
+  /** Hark: last fetched project list, mirrored into the mobile snapshot. */
+  harkProjects?: HarkProjectSummary[]
+  /** Hark: statuses keyed by conversation id (working/unread/...). */
+  harkProjectStatuses?: Record<string, string>
+  /** Hark: when the project list was last refreshed. */
+  harkProjectsUpdatedAt?: number
   /** Grok Bot agent UUID to talk to (optional; defaults to first agent). */
   selectedAgentId?: string
   memory: MemoryItem[]

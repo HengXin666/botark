@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, ChevronRight, FolderKanban, Loader2, Plus, RefreshCw, Search, Star } from 'lucide-react'
+import { AlertCircle, ChevronRight, FolderKanban, Loader2, Plus, RefreshCw, Search, Star, Trash2 } from 'lucide-react'
 import { PaneHeader } from '@/components/layout/PaneHeader'
 import { BotAvatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
@@ -9,15 +9,9 @@ import { getBridge } from '@/lib/bridge'
 import { cn } from '@/lib/cn'
 import { useBotStore } from '@/store/botStore'
 import type { Bot } from '@/types'
+import { harkActivityTime, harkProjectTitle, parseHarkConversations, parseHarkStatuses, type HarkProjectSummary } from '@shared/harkProjects'
 
-type HarkConversation = {
-  id: string
-  kind: 'main' | 'project'
-  title: string | null
-  favorite: boolean
-  archivedAt: string | null
-  activityAt: string
-}
+type HarkConversation = HarkProjectSummary
 
 export interface HarkProjectsPageProps { bot: Bot }
 
@@ -29,38 +23,12 @@ function asString(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
-function readConversations(data: unknown): HarkConversation[] {
-  const root = asRecord(data)
-  const items = root && Array.isArray(root['conversations']) ? root['conversations'] : []
-  return items.flatMap((item) => {
-    const raw = asRecord(item)
-    const id = raw ? asString(raw['id']) : ''
-    if (!raw || !id) return []
-    const kind = asString(raw['kind']) === 'main' ? 'main' : 'project'
-    return [{
-      id, kind,
-      title: asString(raw['title']) || null,
-      favorite: raw['favorite'] === true,
-      archivedAt: asString(raw['archivedAt']) || null,
-      activityAt: asString(raw['activityAt']) || asString(raw['updatedAt']) || asString(raw['createdAt'])
-    }]
-  })
-}
-
-function readStatuses(data: unknown): Record<string, string> {
-  const raw = asRecord(asRecord(data)?.['statuses'])
-  const out: Record<string, string> = {}
-  if (raw) for (const [id, value] of Object.entries(raw)) if (typeof value === 'string' && value) out[id] = value
-  return out
-}
-
 function conversationTitle(conversation: HarkConversation): string {
-  return conversation.title?.trim() || (conversation.kind === 'main' ? '主对话' : '未命名项目')
+  return harkProjectTitle(conversation)
 }
 
 function activityTime(conversation: HarkConversation): number {
-  const time = Date.parse(conversation.activityAt)
-  return Number.isFinite(time) ? time : 0
+  return harkActivityTime(conversation)
 }
 
 function formatActivity(value: string): string {
@@ -91,37 +59,47 @@ function StatusBadge({ status }: { status: string }) {
   return null
 }
 
-function ConversationCard({ bot, conversation, status, opening, featured = false, onOpen }: {
+function ConversationRow({ bot, conversation, status, opening, deleting, featured = false, onOpen, onDelete }: {
   bot: Bot
   conversation: HarkConversation
   status?: string
   opening: boolean
+  deleting?: boolean
   featured?: boolean
   onOpen: (conversation: HarkConversation) => void
+  onDelete?: (conversation: HarkConversation) => void
 }) {
   const title = conversationTitle(conversation)
   return (
-    <button type="button" disabled={opening} aria-busy={opening || undefined} aria-label={`打开${title}`} onClick={() => onOpen(conversation)}
-      className={cn('press group flex w-full items-start gap-3 rounded-2xl border border-line bg-surface p-3.5 text-left shadow-soft transition-colors', 'hover:border-line-strong hover:bg-hover/60 disabled:cursor-default disabled:opacity-80', featured && 'gap-3.5 p-4')}>
-      {conversation.kind === 'main' ? (
-        <BotAvatar emoji={bot.emoji} seed={bot.id} avatar={bot.avatar} avatarShape={bot.avatarShape} avatarColor={bot.avatarColor} platformId={bot.platformId} size={featured ? 'md' : 'sm'} />
-      ) : (
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-hover text-ink-secondary"><FolderKanban className="size-[18px]" aria-hidden /></span>
+    <div className={cn('group flex w-full items-center gap-2 rounded-2xl border border-line bg-surface p-2 shadow-soft transition-colors', 'hover:border-line-strong hover:bg-hover/60', featured && 'p-2.5')}>
+      <button type="button" disabled={opening || deleting} aria-busy={opening || deleting || undefined} aria-label={`打开${title}`} onClick={() => onOpen(conversation)}
+        className="press flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1.5 text-left disabled:cursor-default disabled:opacity-70">
+        {conversation.kind === 'main' ? (
+          <BotAvatar emoji={bot.emoji} seed={bot.id} avatar={bot.avatar} avatarShape={bot.avatarShape} avatarColor={bot.avatarColor} platformId={bot.platformId} size={featured ? 'md' : 'sm'} />
+        ) : (
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-hover text-ink-secondary"><FolderKanban className="size-[18px]" aria-hidden /></span>
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <span className={cn('min-w-0 max-w-full truncate font-medium text-ink', featured ? 'text-[14px]' : 'text-[13px]')}>{title}</span>
+            {conversation.favorite && <Star className="size-3.5 shrink-0 fill-status-attention text-status-attention" aria-label="已收藏" />}
+            <StatusBadge status={status ?? ''} />
+          </span>
+          <span className="mt-1 flex min-w-0 items-center gap-2 text-[11.5px] text-ink-muted">
+            {conversation.kind === 'main' && <span className="shrink-0">默认会话</span>}
+            {conversation.activityAt && <span className="truncate">{formatActivity(conversation.activityAt)}</span>}
+            {opening && <span className="shrink-0 text-ink-secondary">正在打开…</span>}
+          </span>
+        </span>
+        {opening ? <Loader2 className="size-4 shrink-0 animate-spin text-ink-muted" aria-hidden /> : <ChevronRight className="size-4 shrink-0 text-ink-faint group-hover:text-ink-muted" aria-hidden />}
+      </button>
+      {onDelete && conversation.kind === 'project' && (
+        <button type="button" disabled={deleting || opening} onClick={() => onDelete(conversation)} aria-label={`删除${title}`} title="删除项目"
+          className="grid size-8 shrink-0 place-items-center rounded-xl text-ink-faint transition-colors hover:bg-status-error/10 hover:text-status-error-ink disabled:opacity-50">
+          {deleting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Trash2 className="size-4" aria-hidden />}
+        </button>
       )}
-      <span className="min-w-0 flex-1">
-        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <span className={cn('min-w-0 max-w-full truncate font-medium text-ink', featured ? 'text-[14px]' : 'text-[13px]')}>{title}</span>
-          {conversation.favorite && <Star className="size-3.5 shrink-0 fill-status-attention text-status-attention" aria-label="已收藏" />}
-          <StatusBadge status={status ?? ''} />
-        </span>
-        <span className="mt-1 flex min-w-0 items-center gap-2 text-[11.5px] text-ink-muted">
-          {conversation.kind === 'main' && <span className="shrink-0">默认会话</span>}
-          {conversation.activityAt && <span className="truncate">{formatActivity(conversation.activityAt)}</span>}
-          {opening && <span className="shrink-0 text-ink-secondary">正在打开…</span>}
-        </span>
-      </span>
-      {opening ? <Loader2 className="mt-1 size-4 shrink-0 animate-spin text-ink-muted" aria-hidden /> : <ChevronRight className="mt-1 size-4 shrink-0 text-ink-faint group-hover:text-ink-muted" aria-hidden />}
-    </button>
+    </div>
   )
 }
 
@@ -129,7 +107,7 @@ function ProjectsSkeleton() {
   return (
     <div className="flex flex-col gap-4" aria-label="正在加载项目">
       <div className="h-[76px] animate-pulse rounded-2xl border border-line bg-surface" />
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="flex flex-col gap-2.5">
         {[0, 1, 2].map((index) => <div key={index} className="h-[72px] animate-pulse rounded-2xl border border-line bg-surface" />)}
       </div>
     </div>
@@ -166,20 +144,28 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>()
   const [openingId, setOpeningId] = useState<string>()
+  const [deletingId, setDeletingId] = useState<string>()
+  const [statusLoaded, setStatusLoaded] = useState(false)
   const [composerOpen, setComposerOpen] = useState(false)
   const [draftTitle, setDraftTitle] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string>()
   const titleInputRef = useRef<HTMLInputElement>(null)
+  const autoOpenedRef = useRef(false)
+  const harkResumeLast = useBotStore((state) => state.harkResumeLastConversation)
+  const setHarkResumeLast = useBotStore((state) => state.setHarkResumeLastConversation)
+  const setHarkProjectData = useBotStore((state) => state.setHarkProjectData)
 
   const refreshStatuses = useCallback(async () => {
     const hark = getBridge()?.hark
     if (!hark?.rpc || !accountId) return
     try {
       const result = await hark.rpc({ accountId, op: 'conversationStatus' })
-      if (result.ok) setStatuses(readStatuses(result.data))
+      if (result.ok) setStatuses(parseHarkStatuses(result.data))
     } catch {
       // Status polling is best-effort; keep the last known values.
+    } finally {
+      setStatusLoaded(true)
     }
   }, [accountId])
 
@@ -200,7 +186,7 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
     try {
       const result = await hark.rpc({ accountId, op: 'listConversations' })
       if (!result.ok) throw new Error(result.message || `加载项目失败（HTTP ${result.status}）`)
-      setConversations(readConversations(result.data))
+      setConversations(parseHarkConversations(result.data))
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -211,6 +197,8 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
   useEffect(() => {
     setConversations(null)
     setStatuses({})
+    setStatusLoaded(false)
+    autoOpenedRef.current = false
     setError(undefined)
     void loadConversations()
   }, [loadConversations])
@@ -220,6 +208,10 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
     const timer = window.setInterval(() => void refreshStatuses(), 5000)
     return () => window.clearInterval(timer)
   }, [refreshStatuses])
+
+  useEffect(() => {
+    if (conversations) setHarkProjectData(bot.id, conversations, statuses)
+  }, [bot.id, conversations, setHarkProjectData, statuses])
 
   useEffect(() => {
     if (composerOpen) titleInputRef.current?.focus()
@@ -232,7 +224,7 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
   const mainConversation = useMemo(() => conversations?.find((item) => item.kind === 'main') ?? null, [conversations])
   const projects = useMemo(() => {
     if (!conversations) return []
-    return conversations
+    return [...conversations]
       .filter((item) => item.kind === 'project' && item.archivedAt === null)
       .sort((left, right) => activityTime(right) - activityTime(left))
   }, [conversations])
@@ -240,6 +232,10 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
     const keyword = query.trim().toLowerCase()
     return keyword ? projects.filter((item) => conversationTitle(item).toLowerCase().includes(keyword)) : projects
   }, [projects, query])
+  const workingProjects = useMemo(
+    () => projects.filter((item) => statuses[item.id]?.toLowerCase() === 'working'),
+    [projects, statuses]
+  )
 
   const openConversation = useCallback(async (conversation: HarkConversation) => {
     if (openingId) return
@@ -253,6 +249,40 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
       setOpeningId(undefined)
     }
   }, [bot.id, openingId])
+
+  const deleteConversation = useCallback(async (conversation: HarkConversation) => {
+    if (deletingId || openingId) return
+    const title = conversationTitle(conversation)
+    const confirmed = window.confirm(`删除项目「${title}」？
+
+这会从 Hark 云端删除该对话，且无法恢复。`)
+    if (!confirmed) return
+    setDeletingId(conversation.id)
+    setError(undefined)
+    try {
+      await useBotStore.getState().deleteHarkConversation(bot.id, conversation.id)
+      setConversations((prev) => prev?.filter((item) => item.id !== conversation.id) ?? prev)
+      setStatuses((prev) => {
+        const next = { ...prev }
+        delete next[conversation.id]
+        return next
+      })
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setDeletingId(undefined)
+    }
+  }, [bot.id, deletingId, openingId])
+
+  useEffect(() => {
+    if (autoOpenedRef.current || !conversations || !statusLoaded) return
+    autoOpenedRef.current = true
+    if (bot.activeSessionId || !harkResumeLast) return
+    const working = conversations
+      .filter((item) => item.kind === 'project' && item.archivedAt === null && statuses[item.id]?.toLowerCase() === 'working')
+      .sort((left, right) => activityTime(right) - activityTime(left))
+    if (working.length === 1) void openConversation(working[0]!)
+  }, [bot.activeSessionId, conversations, harkResumeLast, openConversation, statusLoaded, statuses])
 
   const openComposer = () => {
     setComposerOpen(true)
@@ -307,7 +337,16 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
           <span className="h-3.5 w-px shrink-0 bg-line" aria-hidden />
           <span className="truncate text-[12px] text-ink-secondary">{bot.name}</span>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-2">
+          <label className="hidden items-center gap-1.5 text-[11.5px] text-ink-secondary sm:flex" title="默认开启：打开 Hark 时直接回到上次聊天的项目；关闭后总是先显示项目列表。">
+            <input
+              type="checkbox"
+              checked={harkResumeLast}
+              onChange={(event) => setHarkResumeLast(event.target.checked)}
+              className="size-3.5 accent-accent-600"
+            />
+            恢复上次对话
+          </label>
           <IconButton label="刷新项目" disabled={loading} onClick={() => void refreshAll()}><RefreshCw className={cn(loading && 'animate-spin')} aria-hidden /></IconButton>
           <Button variant="primary" size="sm" onClick={openComposer}><Plus aria-hidden /> 新建项目</Button>
         </div>
@@ -362,10 +401,24 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
             error ? null : <ProjectsSkeleton />
           ) : (
             <>
+              {workingProjects.length > 0 && (
+                <section className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <h2 className="text-[12px] font-medium text-ink-secondary">正在工作<span className="ml-1.5 text-[11px] font-normal tabular-nums text-ink-muted">{workingProjects.length}</span></h2>
+                    <span className="text-[11px] text-ink-muted">可以直接点开切换</span>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {workingProjects.map((conversation) => (
+                      <ConversationRow key={`working-${conversation.id}`} bot={bot} conversation={conversation} status="working" opening={openingId === conversation.id} deleting={deletingId === conversation.id} onOpen={(next) => void openConversation(next)} onDelete={(next) => void deleteConversation(next)} />
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {mainConversation && (
                 <section className="flex flex-col gap-2">
                   <h2 className="px-1 text-[11.5px] font-medium tracking-wide text-ink-muted">主对话</h2>
-                  <ConversationCard bot={bot} conversation={mainConversation} status={statuses[mainConversation.id]?.toLowerCase()} opening={openingId === mainConversation.id} featured onOpen={(conversation) => void openConversation(conversation)} />
+                  <ConversationRow bot={bot} conversation={mainConversation} status={statuses[mainConversation.id]?.toLowerCase()} opening={openingId === mainConversation.id} featured onOpen={(conversation) => void openConversation(conversation)} />
                 </section>
               )}
 
@@ -383,9 +436,9 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
                 ) : filteredProjects.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-line bg-surface/50 px-4 py-8 text-center text-[12.5px] text-ink-muted">没有匹配的项目</div>
                 ) : (
-                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                  <div className="flex flex-col gap-2">
                     {filteredProjects.map((conversation) => (
-                      <ConversationCard key={conversation.id} bot={bot} conversation={conversation} status={statuses[conversation.id]?.toLowerCase()} opening={openingId === conversation.id} onOpen={(next) => void openConversation(next)} />
+                      <ConversationRow key={conversation.id} bot={bot} conversation={conversation} status={statuses[conversation.id]?.toLowerCase()} opening={openingId === conversation.id} deleting={deletingId === conversation.id} onOpen={(next) => void openConversation(next)} onDelete={(next) => void deleteConversation(next)} />
                     ))}
                   </div>
                 )}

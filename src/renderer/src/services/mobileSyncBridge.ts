@@ -43,6 +43,26 @@ function buildWorkspaceSnapshot(): MobileWorkspaceSnapshot {
       pinned: b.pinned,
       activeAccountId: b.activeAccountId,
       activeSessionId: b.activeSessionId,
+      ...(b.activeSessionTitle ? { activeSessionTitle: b.activeSessionTitle } : {}),
+      ...(b.activeSessionKind ? { activeSessionKind: b.activeSessionKind } : {}),
+      ...(b.harkProjectsOpen !== undefined ? { harkProjectsOpen: b.harkProjectsOpen } : {}),
+      ...(b.platformId === 'hark' && b.harkProjects?.length
+        ? {
+            harkProjects: b.harkProjects.map((project) => ({
+              id: project.id,
+              kind: project.kind,
+              title: project.title,
+              favorite: project.favorite,
+              archivedAt: project.archivedAt,
+              activityAt: project.activityAt,
+              ...(b.harkProjectStatuses?.[project.id]
+                ? { status: b.harkProjectStatuses[project.id] }
+                : project.status
+                  ? { status: project.status }
+                  : {})
+            }))
+          }
+        : {}),
       lastActivityAt: lastMsgAt
     }
   })
@@ -209,6 +229,16 @@ export function startMobileSyncBridge(): () => void {
           .then(() => store.setSelectedAgent(bot.id, bot.selectedAgentId!))
           .catch(() => undefined)
       }
+    } else if (cmd.kind === 'harkOpenConversation') {
+      void store
+        .openHarkConversation(cmd.botId, cmd.conversationId, cmd.title ?? '未命名项目', cmd.conversationKind ?? 'project')
+        .catch(() => undefined)
+    } else if (cmd.kind === 'harkDeleteConversation') {
+      void store.deleteHarkConversation(cmd.botId, cmd.conversationId).catch(() => undefined)
+    } else if (cmd.kind === 'harkRefreshProjects') {
+      void store.refreshHarkProjects(cmd.botId).catch(() => undefined)
+    } else if (cmd.kind === 'harkShowProjects') {
+      store.showHarkProjects(cmd.botId)
     } else if (cmd.kind === 'decideApproval') {
       const adapter = adapterRegistry.get(cmd.platformId)
       if (adapter?.decideApproval) {

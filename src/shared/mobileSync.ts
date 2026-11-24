@@ -32,6 +32,16 @@ export interface MobileSyncedGroup {
   collapsed: boolean
 }
 
+export interface MobileSyncedHarkProject {
+  id: string
+  kind: 'main' | 'project'
+  title: string | null
+  favorite: boolean
+  archivedAt: string | null
+  activityAt: string
+  status?: string
+}
+
 export interface MobileSyncedBot {
   id: string
   platformId: MobilePlatformId
@@ -44,6 +54,10 @@ export interface MobileSyncedBot {
   pinned?: boolean
   activeAccountId: string
   activeSessionId?: string
+  activeSessionTitle?: string
+  activeSessionKind?: 'main' | 'project'
+  harkProjectsOpen?: boolean
+  harkProjects?: MobileSyncedHarkProject[]
   lastActivityAt: number
 }
 
@@ -176,6 +190,16 @@ export type MobileRelayCommand =
       approvalId: string
       decision: 'allow_once' | 'allow_session' | 'allow_always' | 'deny' | 'deny_always'
     }
+  | {
+      kind: 'harkOpenConversation'
+      botId: string
+      conversationId: string
+      title?: string
+      conversationKind?: 'main' | 'project'
+    }
+  | { kind: 'harkDeleteConversation'; botId: string; conversationId: string }
+  | { kind: 'harkRefreshProjects'; botId: string }
+  | { kind: 'harkShowProjects'; botId: string }
 
 export interface PairingUriParts {
   version: number

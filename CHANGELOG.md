@@ -8,6 +8,12 @@ All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 - **Android grouped bot list**: desktop groups and their collapsed state now survive QR/offline sync; group headers show bot counts and can be collapsed locally without changing the desktop sidebar.
 - **Portable proxy nodes**: verified vless URIs are delivered natively to the phone, while desktop-local HTTP/SOCKS nodes are exposed through authenticated LAN SOCKS relay listeners; proxy credentials travel inside the one-time QR AES payload or the encrypted offline bundle and are stored in Android Keystore.
 - **Android multi-protocol proxy + unused-node preference**: the bundled mihomo core accepts vless, HTTP and SOCKS5 nodes from sync/subscriptions, and the proxy group uses a fallback health check over an unused-first ordering to auto-select a working node.
+- **Hark project list, working shortcuts and delete**: desktop and Android now show Hark projects in a recency-first list, surface every `working` project as a quick-switch entry, and allow deleting stuck project conversations from either client.
+- **Resume last Hark conversation**: an opt-in (default on) setting restores the last project chat on first open; with no history it opens the single working project, or the project page with a working list when several are active.
+
+### Fixed
+- **Hark false "已送达但没有回复"**: a still-working Hark project is no longer marked as an unanswered send after the reply poll times out; completion is re-detected from the status monitor and the full reply is reloaded when Hark finishes.
+- **Hark status sync**: working/unread statuses now reach the Android project list continuously instead of only after the desktop project page is opened.
 
 ### Changed
 - **Mobile sync pairing payload**: pairing and `.botark-sync` exports now optionally carry encrypted proxy nodes; older clients ignore the extra field.

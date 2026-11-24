@@ -91,7 +91,14 @@ export class HarkAdapter implements PlatformAdapter {
           busy: working.size > 0
         }
       })
+      if (JSON.stringify(previous) !== JSON.stringify(next)) {
+        this.emit({ type: 'harkStatus', accountId: event.accountId, statuses: next })
+      }
       this.setStatus(event.accountId, working.size > 0 ? 'busy' : 'online')
+      for (const item of event.completed ?? []) {
+        console.info('[hark] completed', event.accountId, item.conversationId, item.title)
+        this.emit({ type: 'harkCompleted', accountId: event.accountId, conversationId: item.conversationId })
+      }
       return
     }
     if (event.type === 'activity') {
@@ -406,7 +413,7 @@ export class HarkAdapter implements PlatformAdapter {
         timezone: timeZone,
         afterMessageCount: beforeMsgs.length,
         afterMessageIds: afterIds,
-        timeoutMs: 90_000
+        timeoutMs: 180_000
       })) as {
         reply?: {
           id: string
@@ -438,6 +445,9 @@ export class HarkAdapter implements PlatformAdapter {
         }
       })
 
+      if (!polled?.reply) {
+        console.info('[hark] reply pending; keeping accepted', message.accountId, conversationId)
+      }
       const replyText = polled?.reply?.content?.trim() ?? ''
       const replyTools = polled?.reply?.tools
       const replyMedia = polled?.reply?.media
@@ -468,11 +478,13 @@ export class HarkAdapter implements PlatformAdapter {
       }
 
       this.setStatus(message.accountId, this.statusAfterWork(message.accountId))
+      // An accepted Hark send is never presented as "no reply" with a retry
+      // action: Hark can run for minutes and a retry would duplicate the task.
+      // The status monitor / late stream hydrate the eventual answer.
       return {
         messageId: createId('msg'),
         acceptedAt: Date.now(),
-        sessionId: conversationId,
-        ...(replyText || replyTools?.length || replyMedia?.length || replyRich?.length ? {} : { noReply: true })
+        sessionId: conversationId
       }
     } catch (error) {
       this.emit({
@@ -496,12 +508,12 @@ export class HarkAdapter implements PlatformAdapter {
       })
       const detail = error instanceof Error ? error.message : String(error)
       // A send that timed out may have landed (harkFetch never retries writes):
-      // report it as unanswered so the user does not blindly double-send.
+      // treat it as accepted rather than inviting a duplicate send.
       const writeTimedOut = /Hark (POST|PUT|PATCH) \S+ timed out/.test(detail)
       if (accepted || writeTimedOut) {
-        // The message is (or may be) on Hark already; only the answer is missing.
+        // The message is (or may be) on Hark already; never ask the user to resend.
         this.setStatus(message.accountId, this.statusAfterWork(message.accountId))
-        throw new AdapterError('no-reply', `Hark 已收到消息，但读取回复失败：${detail}`)
+        return { messageId: createId('msg'), acceptedAt: Date.now(), sessionId: conversationId }
       }
       const next = statusAfterSendFailure(error)
       this.setStatus(message.accountId, next, next === 'error' ? detail : undefined)

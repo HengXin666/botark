@@ -9,9 +9,10 @@ const watchdog = new ReplyWatchdog()
 /** Typing is keyed by bot id; events may carry a bot id or an account id. */
 function botIdFor(idOrAccount: string): string {
   const { bots } = useBotStore.getState()
-  return bots.some((b) => b.id === idOrAccount)
-    ? idOrAccount
-    : bots.find((b) => b.accountIds.includes(idOrAccount))?.id ?? idOrAccount
+  if (bots.some((b) => b.id === idOrAccount)) return idOrAccount
+  const bySession = bots.find((b) => b.activeSessionId === idOrAccount)
+  if (bySession) return bySession.id
+  return bots.find((b) => b.accountIds.includes(idOrAccount))?.id ?? idOrAccount
 }
 
 function touchAccount(accountId: string): void {
@@ -61,13 +62,13 @@ function handleEvent(event: AdapterEvent): void {
       store.receiveMessage(event.message)
       break
     case "typing":
-      store.setTyping(event.conversationId, event.isTyping)
+      store.setTyping(botIdFor(event.conversationId), event.isTyping)
       break
     case "status":
       store.setAccountStatus(event.accountId, event.status, event.detail)
       break
     case "message_delta":
-      store.setTyping(event.conversationId, true)
+      store.setTyping(botIdFor(event.conversationId), true)
       if (
         event.text ||
         event.widgets?.length ||
@@ -77,7 +78,7 @@ function handleEvent(event: AdapterEvent): void {
       ) {
         store.applyMessageDelta(
           event.messageId,
-          event.conversationId,
+          botIdFor(event.conversationId),
           event.accountId,
           event.text || "",
           event.widgets,
@@ -94,6 +95,39 @@ function handleEvent(event: AdapterEvent): void {
     case "login":
       store.setAccountStatus(event.accountId, event.signedIn ? "online" : "offline")
       break
+    case "harkStatus": {
+      useBotStore.setState((state) => ({
+        bots: state.bots.map((bot) =>
+          bot.platformId === 'hark' && bot.activeAccountId === event.accountId
+            ? {
+                ...bot,
+                harkProjectStatuses: event.statuses,
+                harkProjects: bot.harkProjects?.map((project) => ({
+                  ...project,
+                  status: event.statuses[project.id] ?? project.status
+                }))
+              }
+            : bot
+        )
+      }))
+      break
+    }
+    case "harkCompleted": {
+      const activeBot = store.bots.find(
+        (bot) => bot.activeAccountId === event.accountId && bot.activeSessionId === event.conversationId
+      )
+      if (activeBot) {
+        void store
+          .openHarkConversation(
+            activeBot.id,
+            event.conversationId,
+            activeBot.activeSessionTitle ?? 'Hark 项目',
+            activeBot.activeSessionKind ?? 'project'
+          )
+          .catch(() => undefined)
+      }
+      break
+    }
     case "activity":
       store.setActivity(event.accountId, {
         code: event.activity.code,

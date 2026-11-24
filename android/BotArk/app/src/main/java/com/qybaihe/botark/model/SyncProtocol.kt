@@ -89,6 +89,17 @@ data class SyncedAccount(
 )
 
 @Serializable
+data class SyncedHarkProject(
+    val id: String,
+    val kind: String = "project",
+    val title: String? = null,
+    val favorite: Boolean = false,
+    val archivedAt: String? = null,
+    val activityAt: String = "",
+    val status: String? = null
+)
+
+@Serializable
 data class SyncedBot(
     val id: String,
     val platformId: PlatformId,
@@ -101,6 +112,10 @@ data class SyncedBot(
     val pinned: Boolean? = null,
     val activeAccountId: String,
     val activeSessionId: String? = null,
+    val activeSessionTitle: String? = null,
+    val activeSessionKind: String? = null,
+    val harkProjectsOpen: Boolean? = null,
+    val harkProjects: List<SyncedHarkProject> = emptyList(),
     val standaloneUrl: String? = null,
     val lastActivityAt: Double = 0.0
 ) {

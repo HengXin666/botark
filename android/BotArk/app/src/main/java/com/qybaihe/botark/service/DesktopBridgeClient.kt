@@ -50,6 +50,15 @@ private data class SendMessageBody(
 private data class BotActionBody(val botId: String)
 
 @Serializable
+private data class HarkActionBody(
+    val botId: String,
+    val action: String,
+    val conversationId: String? = null,
+    val title: String? = null,
+    val conversationKind: String? = null
+)
+
+@Serializable
 private data class ApprovalDecisionBody(
     val accountId: String,
     val platformId: String,
@@ -217,6 +226,28 @@ class DesktopBridgeClient {
             .post(json.encodeToString(BotActionBody(botId)).toRequestBody(jsonMedia))
             .build()
         runCatching { client.newCall(req).execute().close() }
+    }
+
+    suspend fun harkAction(
+        desktop: PairedDesktopInfo,
+        botId: String,
+        action: String,
+        conversationId: String? = null,
+        title: String? = null,
+        conversationKind: String? = null
+    ) = withContext(Dispatchers.IO) {
+        val body = json.encodeToString(
+            HarkActionBody(botId, action, conversationId, title, conversationKind)
+        )
+        val req = Request.Builder()
+            .url("http://${desktop.activeHost}:${desktop.port}/api/mobile/v1/hark/action")
+            .header("Authorization", "Bearer ${desktop.deviceToken}")
+            .post(body.toRequestBody(jsonMedia))
+            .build()
+        client.newCall(req).execute().use { resp ->
+            if (resp.code == 401) throw DesktopBridgeException("授权已失效", unauthorized = true)
+            if (!resp.isSuccessful) throw DesktopBridgeException("Hark 操作失败（HTTP ${resp.code}）")
+        }
     }
 
     suspend fun decideApproval(
