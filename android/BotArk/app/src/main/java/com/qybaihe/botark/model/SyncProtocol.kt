@@ -118,6 +118,8 @@ data class SyncedBot(
     val harkProjectsOpen: Boolean? = null,
     val harkProjects: List<SyncedHarkProject> = emptyList(),
     val standaloneUrl: String? = null,
+    val activityBusy: Boolean = false,
+    val activityText: String? = null,
     val lastActivityAt: Double = 0.0
 ) {
     val isStandaloneWeb: Boolean

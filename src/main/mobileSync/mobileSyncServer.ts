@@ -34,7 +34,8 @@ import {
   sha256Hex
 } from './mobileSyncCrypto'
 
-const DEFAULT_PORT = 19472
+/** Stay outside mihomo's local proxy-port range (18800-19999). */
+const DEFAULT_PORT = 18572
 const PAIR_TTL_MS = 10 * 60 * 1000
 const MAX_BODY_BYTES = 2 * 1024 * 1024
 

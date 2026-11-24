@@ -104,6 +104,7 @@ fun ChatScreen(
     val harkCompleted = bot.platformId == PlatformId.HARK &&
         bot.activeSessionId != null &&
         !isTyping &&
+        !bot.activityBusy &&
         harkProject?.status?.equals("working", ignoreCase = true) != true &&
         harkProject?.let { harkHasHistory(it) } == true
     var draft by remember { mutableStateOf("") }

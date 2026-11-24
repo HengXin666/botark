@@ -714,6 +714,7 @@ private fun EditorialBotRow(
     val status = state.status(bot)
     val lastMsg = state.snapshot.messages[bot.id]?.lastOrNull()
     val isTyping = state.typingByBotId[bot.id] == true
+    val isWorking = isTyping || bot.activityBusy
     val pendingCount = state.snapshot.approvals[bot.activeAccountId]
         .orEmpty()
         .count { it.status == "pending" }
@@ -756,9 +757,13 @@ private fun EditorialBotRow(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (isWorking) {
+                    LivingPulseDot(color = palette.accent, size = 5.dp)
+                }
                 Text(
                     text = when {
-                        isTyping -> "正在生成..."
+                        isWorking -> bot.activityText?.takeIf { it.isNotBlank() }
+                            ?: if (isTyping) "正在生成..." else "正在工作..."
                         bot.isStandaloneWeb -> {
                             val host = runCatching { java.net.URI(bot.standaloneUrl ?: "").host }.getOrNull()
                             "手机独立直连 · ${host ?: bot.platformId.displayName}"
@@ -766,7 +771,7 @@ private fun EditorialBotRow(
                         else -> cleanPreview(lastMsg?.text) ?: bot.platformId.displayName
                     },
                     fontSize = 12.5.sp,
-                    color = if (isTyping) palette.accent else palette.textSecondary,
+                    color = if (isWorking) palette.accent else palette.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)

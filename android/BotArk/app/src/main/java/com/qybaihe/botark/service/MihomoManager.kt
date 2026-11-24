@@ -196,6 +196,14 @@ object MihomoManager {
         sb.appendLine("    interval: 300")
         sb.appendLine("    proxies: [" + list.indices.joinToString(", ") { "n$it" }.ifEmpty { "" } + "]")
         sb.appendLine("rules:")
+        // The Android VPN captures all app traffic. Keep the paired desktop's
+        // LAN/Tailscale bridge direct even when a remote proxy is selected.
+        sb.appendLine("  - IP-CIDR,10.0.0.0/8,DIRECT,no-resolve")
+        sb.appendLine("  - IP-CIDR,100.64.0.0/10,DIRECT,no-resolve")
+        sb.appendLine("  - IP-CIDR,127.0.0.0/8,DIRECT,no-resolve")
+        sb.appendLine("  - IP-CIDR,169.254.0.0/16,DIRECT,no-resolve")
+        sb.appendLine("  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve")
+        sb.appendLine("  - IP-CIDR,192.168.0.0/16,DIRECT,no-resolve")
         if (list.isEmpty()) sb.appendLine("  - MATCH,DIRECT") else sb.appendLine("  - MATCH,PROXY")
         return sb.toString()
     }

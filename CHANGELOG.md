@@ -15,6 +15,10 @@ All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 ### Fixed
 - **Hark false "已送达但没有回复"**: a still-working Hark project is no longer marked as an unanswered send after the reply poll times out; completion is re-detected from the status monitor and the full reply is reloaded when Hark finishes.
 - **Hark status sync**: working/unread statuses now reach the Android project list continuously instead of only after the desktop project page is opened.
+- **Android working state**: the phone bot list now receives adapter activity, so a running bot shows the pulsing working indicator and activity text instead of looking idle.
+- **Mobile sync port stability**: the desktop sync server now uses a port outside mihomo's 18800-19999 proxy range, preventing a random fallback port that broke reconnects after desktop restart.
+- **Android VPN LAN bridge**: when the phone proxy is enabled, private LAN/Tailscale addresses now bypass mihomo, so the authenticated desktop bridge is not routed through a remote proxy.
+- **Hark images on Android**: Hark project image artifacts are downloaded through the desktop Hark session and sent to the phone as data URLs, so phone image bubbles no longer depend on `harkatt://` paths.
 
 ### Changed
 - **Mobile sync pairing payload**: pairing and `.botark-sync` exports now optionally carry encrypted proxy nodes; older clients ignore the extra field.

@@ -59,6 +59,9 @@ export interface MobileSyncedBot {
   activeSessionKind?: 'main' | 'project'
   harkProjectsOpen?: boolean
   harkProjects?: MobileSyncedHarkProject[]
+  /** Current adapter activity mirrored to the phone sidebar; absent when idle. */
+  activityBusy?: boolean
+  activityText?: string
   lastActivityAt: number
 }
 

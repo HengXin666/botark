@@ -45,10 +45,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qybaihe.botark.model.SyncedBot
+import kotlinx.coroutines.delay
 import com.qybaihe.botark.model.SyncedHarkProject
 import com.qybaihe.botark.ui.components.PlatformIcon
 import com.qybaihe.botark.ui.theme.ArkColors
 import com.qybaihe.botark.ui.theme.ArkSansFamily
+import com.qybaihe.botark.ui.theme.LivingPulseDot
 import com.qybaihe.botark.viewmodel.BotArkUiState
 import java.time.Duration
 import java.time.Instant
@@ -82,7 +84,11 @@ fun HarkProjectsScreen(
     var autoOpenDone by remember(bot.id) { mutableStateOf(false) }
 
     LaunchedEffect(bot.id) {
-        onRefresh(bot)
+        // Keep project statuses current while the phone's project page is open.
+        while (true) {
+            onRefresh(bot)
+            delay(15_000)
+        }
     }
     LaunchedEffect(bot.id, bot.activeSessionId, state.harkResumeLast, working.map { it.id }) {
         if (autoOpenDone || projects.isEmpty() || projects.none { it.status != null }) return@LaunchedEffect
@@ -127,7 +133,7 @@ fun HarkProjectsScreen(
             }
             if (main != null) {
                 item { HarkSectionTitle("主对话", null) }
-                item(key = "main-" + main.id) { HarkProjectRow(bot, main, false, { onOpenProject(bot, main) }) }
+                item(key = "main-" + main.id) { HarkProjectRow(bot, main, main.status.equals("working", ignoreCase = true), { onOpenProject(bot, main) }) }
             }
             item { HarkSectionTitle("项目", active.size) }
             if (active.isEmpty()) {
@@ -191,7 +197,7 @@ private fun HarkProjectRow(bot: SyncedBot, project: SyncedHarkProject, isWorking
                 Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = palette.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (project.favorite) { Spacer(Modifier.width(4.dp)); Text("★", fontSize = 11.sp, color = palette.amber) }
                 if (isWorking) {
-                    Spacer(Modifier.width(6.dp)); Box(Modifier.size(6.dp).clip(CircleShape).background(palette.accent)); Spacer(Modifier.width(3.dp)); Text("工作中", fontSize = 10.sp, color = palette.accent)
+                    Spacer(Modifier.width(6.dp)); LivingPulseDot(color = palette.accent, size = 5.dp); Spacer(Modifier.width(3.dp)); Text("工作中", fontSize = 10.sp, color = palette.accent)
                 } else if (project.status.equals("unread", ignoreCase = true)) {
                     Spacer(Modifier.width(6.dp)); Text("未读", fontSize = 10.sp, color = palette.amber)
                 } else if (harkHasHistory(project)) {
