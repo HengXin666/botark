@@ -21,6 +21,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -70,10 +72,17 @@ class DirectHermesClient {
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
     private val activeRunIds = ConcurrentHashMap<String, String>()
 
-    private val client = OkHttpClient.Builder()
+    private val baseClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .build()
+
+    private fun client(): OkHttpClient {
+        if (!MihomoManager.isRunning()) return baseClient
+        return baseClient.newBuilder()
+            .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", MihomoManager.MIXED_PORT)))
+            .build()
+    }
 
     companion object {
         fun normalizeBaseUrl(raw: String): String {
@@ -96,7 +105,7 @@ class DirectHermesClient {
         var version: String? = null
         runCatching {
             val healthReq = Request.Builder().url("$base/health").get().build()
-            client.newCall(healthReq).execute().use { resp ->
+            client().newCall(healthReq).execute().use { resp ->
                 if (resp.isSuccessful) {
                     val obj = json.decodeFromString<JsonObject>(resp.body?.string().orEmpty())
                     version = obj["version"]?.jsonPrimitive?.contentOrNull
@@ -107,7 +116,7 @@ class DirectHermesClient {
             apiKey?.trim()?.takeIf { it.isNotEmpty() }?.let { header("Authorization", "Bearer $it") }
         }.get().build()
 
-        client.newCall(modelsReq).execute().use { resp ->
+        client().newCall(modelsReq).execute().use { resp ->
             if (!resp.isSuccessful) {
                 throw Exception(if (resp.code == 401) "API Key 无效" else "Hermes 连接失败（HTTP ${resp.code}）")
             }
@@ -133,7 +142,7 @@ class DirectHermesClient {
             .apply { apiKey?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") } }
             .post(body.toRequestBody(jsonMedia))
             .build()
-        return client.newCall(req).execute().use { resp ->
+        return client().newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return@use resp.code to null
             val obj = runCatching { json.decodeFromString<JsonObject>(resp.body?.string().orEmpty()) }.getOrNull()
             val id = obj?.get("session")?.jsonObject?.get("id")?.jsonPrimitive?.contentOrNull
@@ -195,7 +204,7 @@ class DirectHermesClient {
             .post(body.toRequestBody(jsonMedia))
             .build()
 
-        client.newCall(req).execute().use { resp ->
+        client().newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw Exception("Hermes HTTP ${resp.code}")
             val reader = BufferedReader(InputStreamReader(resp.body!!.byteStream()))
             val parser = HermesSseParser()
@@ -313,7 +322,7 @@ class DirectHermesClient {
             .post(body.toRequestBody(jsonMedia))
             .build()
 
-        client.newCall(req).execute().use { resp ->
+        client().newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) throw Exception("Hermes HTTP ${resp.code}")
             val reader = BufferedReader(InputStreamReader(resp.body!!.byteStream()))
             val parser = HermesSseParser()
@@ -360,6 +369,6 @@ class DirectHermesClient {
             .apply { credential.apiKey?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") } }
             .post(body.toRequestBody(jsonMedia))
             .build()
-        runCatching { client.newCall(req).execute().close() }
+        runCatching { client().newCall(req).execute().close() }
     }
 }
