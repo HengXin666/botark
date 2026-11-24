@@ -2,6 +2,7 @@ package com.qybaihe.botark.service
 
 import android.os.Build
 import com.qybaihe.botark.model.DirectHermesCredential
+import com.qybaihe.botark.model.HarkCredential
 import com.qybaihe.botark.model.MobileWsEnvelope
 import com.qybaihe.botark.model.PairApiResponse
 import com.qybaihe.botark.model.PairedDesktopInfo
@@ -70,6 +71,7 @@ data class DesktopPairResult(
     val info: PairedDesktopInfo,
     val snapshot: WorkspaceSnapshot,
     val directCredentials: List<DirectHermesCredential>,
+    val harkCredentials: List<HarkCredential>,
     val proxyNodes: List<SyncedProxyNode>
 )
 
@@ -154,6 +156,13 @@ class DesktopBridgeClient {
             }.getOrDefault(emptyList())
         } ?: emptyList()
 
+        val harkCredentials = respBody.harkCredentialsEnc?.takeIf { it.isNotBlank() }?.let { enc ->
+            runCatching {
+                val plain = SyncCrypto.decryptAesGcmCombined(enc, payload.key).toString(Charsets.UTF_8)
+                json.decodeFromString<List<HarkCredential>>(plain)
+            }.getOrDefault(emptyList())
+        } ?: emptyList()
+
         val proxyNodes = respBody.proxyNodesEnc?.takeIf { it.isNotBlank() }?.let { enc ->
             runCatching {
                 val plain = SyncCrypto.decryptAesGcmCombined(enc, payload.key).toString(Charsets.UTF_8)
@@ -171,7 +180,7 @@ class DesktopBridgeClient {
             fingerprint = respBody.fp ?: payload.fp,
             pairedAtMs = System.currentTimeMillis().toDouble()
         )
-        DesktopPairResult(info, respBody.snapshot ?: WorkspaceSnapshot.EMPTY, directCreds, proxyNodes)
+        DesktopPairResult(info, respBody.snapshot ?: WorkspaceSnapshot.EMPTY, directCreds, harkCredentials, proxyNodes)
     }
 
     suspend fun fetchSnapshot(desktop: PairedDesktopInfo): WorkspaceSnapshot = withContext(Dispatchers.IO) {

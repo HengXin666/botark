@@ -110,6 +110,8 @@ private fun parseQuery(raw: String?): Map<String, String> {
 
 /** Spawns the bundled mihomo core and renders its config for tun-fd based routing. */
 object MihomoManager {
+    const val MIXED_PORT = 17890
+
     private val started = AtomicBoolean(false)
     private var process: Process? = null
     private var nodes: List<MihomoNode> = emptyList()
@@ -125,7 +127,18 @@ object MihomoManager {
     fun nodeCount(): Int = nodes.size
 
     /** Replace the node set and (re)start mihomo with the given tun fd. */
-    fun startWithTun(ctx: Context, tunFd: Int, nodeList: List<MihomoNode>): Boolean {
+    fun startWithTun(ctx: Context, tunFd: Int, nodeList: List<MihomoNode>): Boolean =
+        startInternal(ctx, tunFd, nodeList)
+
+    /**
+     * Start mihomo as a local mixed-port proxy only. No VpnService/TUN is
+     * established, so the proxy core's own upstream sockets cannot be routed
+     * back into its own tun interface (the old app-wide VPN loop).
+     */
+    fun startLocal(ctx: Context, nodeList: List<MihomoNode>): Boolean =
+        startInternal(ctx, null, nodeList)
+
+    private fun startInternal(ctx: Context, tunFd: Int?, nodeList: List<MihomoNode>): Boolean {
         nodes = nodeList
         val bin = binaryPath(ctx) ?: return false
         val dir = File(ctx.filesDir, "mihomo").apply { mkdirs() }
@@ -164,18 +177,20 @@ object MihomoManager {
         started.set(false)
     }
 
-    private fun renderConfig(tunFd: Int, list: List<MihomoNode>): String {
+    private fun renderConfig(tunFd: Int?, list: List<MihomoNode>): String {
         val sb = StringBuilder()
-        sb.appendLine("mixed-port: 17890")
+        sb.appendLine("mixed-port: " + MIXED_PORT)
         sb.appendLine("allow-lan: false")
         sb.appendLine("mode: rule")
         sb.appendLine("log-level: warning")
-        sb.appendLine("tun:")
-        sb.appendLine("  enable: true")
-        sb.appendLine("  stack: system")
-        sb.appendLine("  fd: $tunFd")
-        sb.appendLine("  auto-route: false")
-        sb.appendLine("  auto-detect-interface: false")
+        if (tunFd != null) {
+            sb.appendLine("tun:")
+            sb.appendLine("  enable: true")
+            sb.appendLine("  stack: system")
+            sb.appendLine("  fd: $tunFd")
+            sb.appendLine("  auto-route: false")
+            sb.appendLine("  auto-detect-interface: false")
+        }
         sb.appendLine("dns:")
         sb.appendLine("  enable: true")
         sb.appendLine("  nameserver:")

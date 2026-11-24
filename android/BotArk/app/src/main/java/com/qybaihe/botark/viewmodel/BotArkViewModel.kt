@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.qybaihe.botark.model.BridgeConnectionState
 import com.qybaihe.botark.model.ConnectionStatus
 import com.qybaihe.botark.model.DirectHermesCredential
+import com.qybaihe.botark.model.HarkCredential
 import com.qybaihe.botark.model.MobileWsEnvelope
 import com.qybaihe.botark.model.OfflineSyncInnerPayload
 import com.qybaihe.botark.model.OfflineSyncOuterBundle
@@ -22,6 +23,8 @@ import com.qybaihe.botark.model.WorkspaceSnapshot
 import com.qybaihe.botark.service.DesktopBridgeClient
 import com.qybaihe.botark.service.DesktopBridgeException
 import com.qybaihe.botark.service.DirectHermesClient
+import com.qybaihe.botark.service.HarkDirectClient
+import com.qybaihe.botark.service.HarkDirectException
 import com.qybaihe.botark.service.SecureVault
 import com.qybaihe.botark.service.SubscriptionClient
 import com.qybaihe.botark.model.SubscriptionRecord
@@ -46,6 +49,7 @@ data class BotArkUiState(
     val snapshot: WorkspaceSnapshot = WorkspaceSnapshot.EMPTY,
     val pairedDesktop: PairedDesktopInfo? = null,
     val directHermesCredentials: List<DirectHermesCredential> = emptyList(),
+    val harkCredentials: List<HarkCredential> = emptyList(),
     val connectionState: BridgeConnectionState = BridgeConnectionState.Unpaired,
     val typingByBotId: Map<String, Boolean> = emptyMap(),
     val pairingBusy: Boolean = false,
@@ -72,7 +76,8 @@ data class BotArkUiState(
         }
 
     val hasStandaloneBots: Boolean
-        get() = directHermesCredentials.isNotEmpty() || snapshot.bots.any { it.isStandaloneWeb }
+        get() = directHermesCredentials.isNotEmpty() || harkCredentials.isNotEmpty() ||
+            snapshot.bots.any { it.isStandaloneWeb }
 
     fun directCredential(forBot: SyncedBot): DirectHermesCredential? {
         if (forBot.platformId != PlatformId.HERMES) return null
@@ -81,8 +86,21 @@ data class BotArkUiState(
         }
     }
 
+    fun harkCredential(forBot: SyncedBot): HarkCredential? {
+        if (forBot.platformId != PlatformId.HARK) return null
+        return harkCredentials.firstOrNull { it.accountId == forBot.activeAccountId }
+    }
+
     fun status(forBot: SyncedBot): ConnectionStatus {
         if (forBot.isStandaloneWeb) return ConnectionStatus.ONLINE
+        if (forBot.platformId == PlatformId.HARK && harkCredential(forBot) != null) {
+            val acc = snapshot.accounts[forBot.activeAccountId]
+            return when (acc?.status) {
+                ConnectionStatus.BUSY -> ConnectionStatus.BUSY
+                ConnectionStatus.ERROR -> ConnectionStatus.ERROR
+                else -> ConnectionStatus.ONLINE
+            }
+        }
         val acc = snapshot.accounts[forBot.activeAccountId]
         if (acc != null) {
             if (!connectionState.isBridgeConnected && forBot.platformId == PlatformId.HERMES && directCredential(forBot) != null) {
@@ -95,12 +113,14 @@ data class BotArkUiState(
 
     fun canSend(toBot: SyncedBot): Boolean {
         if (toBot.isStandaloneWeb) return true
+        if (toBot.platformId == PlatformId.HARK && harkCredential(toBot) != null) return true
         if (connectionState.isBridgeConnected) return true
         return directCredential(toBot) != null
     }
 
     fun shortTransportLabel(forBot: SyncedBot): String {
         if (forBot.isStandaloneWeb) return "独立直连"
+        if (forBot.platformId == PlatformId.HARK && harkCredential(forBot) != null) return "Hark 直连"
         val cs = connectionState
         if (cs is BridgeConnectionState.Connected) return "${cs.hostName} · 桥接"
         if (directCredential(forBot) != null) return "Hermes 直连"
@@ -113,6 +133,7 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
     private val uiPrefs = application.getSharedPreferences("botark_ui_prefs", Application.MODE_PRIVATE)
     private val bridge = DesktopBridgeClient()
     private val directHermes = DirectHermesClient()
+    private val harkDirect = HarkDirectClient()
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _uiState = MutableStateFlow(BotArkUiState())
@@ -120,11 +141,13 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
 
     private var reconnectJob: Job? = null
     private var reconnectAttempt: Int = 0
+    private var harkStatusJob: Job? = null
     private val directJobs = mutableMapOf<String, Job>()
 
     init {
         val desktop = vault.loadPairedDesktop()
         val creds = vault.loadDirectHermesCredentials()
+        val harkCreds = vault.loadHarkCredentials()
         val cached = vault.loadSnapshotCache()
         val savedSub = vault.loadSubscription()
         val subSummary = if (savedSub == null) "" else "上次订阅 " + savedSub.redactedUrl + "，可用节点 " + savedSub.result.nodes.size
@@ -132,6 +155,7 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
             snapshot = cached,
             pairedDesktop = desktop,
             directHermesCredentials = creds,
+            harkCredentials = harkCreds,
             subscriptionSummary = subSummary,
             harkResumeLast = uiPrefs.getBoolean("hark_resume_last", true),
             connectionState = if (desktop != null) {
@@ -143,6 +167,7 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         if (desktop != null) {
             reconnectDesktop()
         }
+        ensureHarkStatusPoller()
     }
 
 
@@ -237,12 +262,14 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
                 vault.savePairedDesktop(info)
                 vault.saveProxyNodes(pairResult.proxyNodes)
                 val mergedCreds = mergeDirectCreds(pairResult.directCredentials)
+                val mergedHarkCreds = mergeHarkCreds(pairResult.harkCredentials)
                 val mergedSnap = mergeWithLocalStandalone(_uiState.value.snapshot, pairResult.snapshot)
                 vault.saveSnapshotCache(mergedSnap)
                 _uiState.update {
                     it.copy(
                         pairedDesktop = info,
                         directHermesCredentials = mergedCreds,
+                        harkCredentials = mergedHarkCreds,
                         snapshot = mergedSnap,
                         connectionState = BridgeConnectionState.Connected(info.hostName, info.activeHost),
                         pairingBusy = false,
@@ -250,6 +277,7 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
                     )
                 }
                 openLiveSocket(info)
+                ensureHarkStatusPoller()
                 onSuccess()
             } catch (e: Exception) {
                 _uiState.update { it.copy(pairingBusy = false, lastError = e.message ?: "配对失败") }
@@ -317,8 +345,11 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun wipeAllLocalData() {
+        harkStatusJob?.cancel()
+        harkStatusJob = null
         unpairDesktop()
         vault.clearDirectHermesCredentials()
+        vault.clearHarkCredentials()
         vault.clearSnapshotCache()
         _uiState.value = BotArkUiState()
     }
@@ -454,9 +485,17 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
             val updatedCreds = state.directHermesCredentials.filterNot {
                 it.botId == botId || it.accountId == removed.activeAccountId
             }
+            val updatedHarkCreds = state.harkCredentials.filterNot {
+                it.accountId == removed.activeAccountId
+            }
             vault.saveDirectHermesCredentials(updatedCreds)
+            vault.saveHarkCredentials(updatedHarkCreds)
             vault.saveSnapshotCache(updatedSnap)
-            state.copy(snapshot = updatedSnap, directHermesCredentials = updatedCreds)
+            state.copy(
+                snapshot = updatedSnap,
+                directHermesCredentials = updatedCreds,
+                harkCredentials = updatedHarkCreds
+            )
         }
     }
 
@@ -476,6 +515,11 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         appendOrUpdateMessage(bot.id, userMsg)
 
         val state = _uiState.value
+        val harkCred = state.harkCredential(bot)
+        if (harkCred != null) {
+            sendDirectHark(bot, harkCred, clientMsgId, trimmed)
+            return
+        }
         val desktop = state.pairedDesktop
         if (desktop != null && state.connectionState.isBridgeConnected) {
             setTyping(bot.id, true)
@@ -552,6 +596,192 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         markDelivery(bot.id, clientMsgId, "failed", "电脑端未连接")
     }
 
+    private fun sendDirectHark(
+        bot: SyncedBot,
+        cred: HarkCredential,
+        clientMsgId: String,
+        text: String
+    ) {
+        directJobs[bot.id]?.cancel()
+        directJobs[bot.id] = viewModelScope.launch {
+            setTyping(bot.id, true)
+            updateHarkActivity(bot, true)
+            try {
+                var conversationId = bot.activeSessionId?.takeIf { it.isNotBlank() }
+                    ?: harkDirect.mainConversationId(cred)
+                    ?: throw Exception("Hark 没有可用的对话")
+                val currentConversation = _uiState.value.snapshot.bots
+                    .firstOrNull { it.id == bot.id }?.activeSessionId
+                if (currentConversation != null && currentConversation != conversationId) {
+                    markDelivery(bot.id, clientMsgId, "failed", "已切换项目")
+                    return@launch
+                }
+                updateBotSession(bot.id, conversationId)
+                val baseline = runCatching {
+                    harkDirect.fetchMessages(cred, conversationId, bot.id, bot.activeAccountId)
+                }.getOrNull()
+                if (!baseline.isNullOrEmpty() && isActiveHarkConversation(bot.id, conversationId)) {
+                    applyHarkMessages(bot.id, baseline)
+                }
+                val beforeIds = (_uiState.value.snapshot.messages[bot.id].orEmpty() + baseline.orEmpty())
+                    .filter { it.id != clientMsgId }
+                    .mapTo(hashSetOf()) { it.id }
+                harkDirect.sendMessage(cred, conversationId, text)
+                markDelivery(bot.id, clientMsgId, "sent", null)
+                setHarkProjectWorking(bot.id, conversationId, true)
+                val finalMessages = harkDirect.awaitReply(
+                    cred = cred,
+                    conversationId = conversationId,
+                    botId = bot.id,
+                    accountId = bot.activeAccountId,
+                    afterIds = beforeIds
+                ) { messages, working ->
+                    if (isActiveHarkConversation(bot.id, conversationId)) {
+                        applyHarkMessages(bot.id, messages)
+                        setTyping(bot.id, working)
+                        updateHarkActivity(bot, working)
+                    }
+                }
+                if (isActiveHarkConversation(bot.id, conversationId)) {
+                    applyHarkMessages(bot.id, finalMessages)
+                    setTyping(bot.id, false)
+                    updateHarkActivity(bot, false)
+                    vault.saveSnapshotCache(_uiState.value.snapshot)
+                }
+                setHarkProjectWorking(bot.id, conversationId, false)
+            } catch (e: Exception) {
+                setTyping(bot.id, false)
+                updateHarkActivity(bot, false)
+                markDelivery(bot.id, clientMsgId, "failed", e.message ?: "Hark 直连失败")
+                if (e is HarkDirectException && (e.status == 401 || e.status == 403)) {
+                    markHarkAuthExpired(bot.id)
+                } else {
+                    _uiState.update { it.copy(lastError = e.message ?: "Hark 直连失败") }
+                }
+            }
+        }
+    }
+
+    private fun applyHarkMessages(botId: String, incoming: List<SyncedMessage>) {
+        _uiState.update { st ->
+            val local = st.snapshot.messages[botId].orEmpty()
+            if (incoming.isEmpty() && local.isNotEmpty()) return@update st
+            val keep = local.filter { it.delivery == "sending" || it.delivery == "failed" }
+                .filterNot { localMsg ->
+                    localMsg.isUser && incoming.any {
+                        it.isUser && it.text.trim() == localMsg.text.trim()
+                    }
+                }
+            val merged = incoming + keep
+            val map = st.snapshot.messages.toMutableMap().apply { put(botId, merged) }
+            st.copy(snapshot = st.snapshot.copy(messages = map))
+        }
+    }
+
+    private fun isActiveHarkConversation(botId: String, conversationId: String): Boolean =
+        _uiState.value.snapshot.bots.firstOrNull { it.id == botId }?.activeSessionId == conversationId
+
+    private fun setHarkProjectWorking(botId: String, conversationId: String, working: Boolean) {
+        _uiState.update { st ->
+            val bots = st.snapshot.bots.map { bot ->
+                if (bot.id != botId) bot else bot.copy(
+                    harkProjects = bot.harkProjects.map { project ->
+                        if (project.id == conversationId) {
+                            project.copy(status = if (working) "working" else null)
+                        } else project
+                    }
+                )
+            }
+            st.copy(snapshot = st.snapshot.copy(bots = bots))
+        }
+    }
+
+    private fun ensureHarkStatusPoller() {
+        if (harkStatusJob?.isActive == true) return
+        if (_uiState.value.harkCredentials.isEmpty()) return
+        harkStatusJob = viewModelScope.launch {
+            while (true) {
+                pollHarkStatuses()
+                delay(20_000)
+            }
+        }
+    }
+
+    private suspend fun pollHarkStatuses() {
+        val bots = _uiState.value.snapshot.bots.filter { it.platformId == PlatformId.HARK }
+        for (bot in bots) {
+            val cred = _uiState.value.harkCredential(bot) ?: continue
+            try {
+                val statuses = harkDirect.listStatuses(cred)
+                applyHarkStatuses(bot.id, statuses)
+            } catch (e: HarkDirectException) {
+                if (e.status == 401 || e.status == 403) markHarkAuthExpired(bot.id)
+            } catch (_: Exception) {
+                /* one expired session must not stop other accounts */
+            }
+        }
+    }
+
+    private fun markHarkAuthExpired(botId: String) {
+        _uiState.update { st ->
+            val bot = st.snapshot.bots.firstOrNull { it.id == botId } ?: return@update st
+            val account = st.snapshot.accounts[bot.activeAccountId] ?: return@update st
+            val accounts = st.snapshot.accounts.toMutableMap().apply {
+                put(
+                    bot.activeAccountId,
+                    account.copy(status = ConnectionStatus.ERROR, statusDetail = "Hark 登录已失效，请重新扫码")
+                )
+            }
+            st.copy(
+                snapshot = st.snapshot.copy(accounts = accounts),
+                lastError = "Hark 登录已失效，请重新扫码同步账号"
+            )
+        }
+    }
+
+    private fun applyHarkStatuses(botId: String, statuses: Map<String, String>) {
+        val working = statuses.values.any { it.equals("working", ignoreCase = true) }
+        _uiState.update { st ->
+            val target = st.snapshot.bots.firstOrNull { it.id == botId } ?: return@update st
+            val bots = st.snapshot.bots.map { bot ->
+                if (bot.id != botId) bot else bot.copy(
+                    harkProjects = bot.harkProjects.map { project ->
+                        project.copy(status = statuses[project.id])
+                    },
+                    activityBusy = working,
+                    activityText = if (working) "正在工作…" else null
+                )
+            }
+            val account = st.snapshot.accounts[target.activeAccountId]
+            val accounts = if (account != null) {
+                st.snapshot.accounts.toMutableMap().apply {
+                    put(
+                        target.activeAccountId,
+                        account.copy(status = if (working) ConnectionStatus.BUSY else ConnectionStatus.ONLINE)
+                    )
+                }
+            } else st.snapshot.accounts
+            st.copy(snapshot = st.snapshot.copy(bots = bots, accounts = accounts))
+        }
+    }
+
+    private fun updateHarkActivity(bot: SyncedBot, busy: Boolean) {
+        _uiState.update { st ->
+            val bots = st.snapshot.bots.map {
+                if (it.id == bot.id) {
+                    it.copy(activityBusy = busy, activityText = if (busy) "正在工作…" else null)
+                } else it
+            }
+            val account = st.snapshot.accounts[bot.activeAccountId]
+            val accounts = if (account != null) {
+                st.snapshot.accounts.toMutableMap().apply {
+                    put(bot.activeAccountId, account.copy(status = if (busy) ConnectionStatus.BUSY else ConnectionStatus.ONLINE))
+                }
+            } else st.snapshot.accounts
+            st.copy(snapshot = st.snapshot.copy(bots = bots, accounts = accounts))
+        }
+    }
+
     fun setHarkResumeLast(enabled: Boolean) {
         uiPrefs.edit().putBoolean("hark_resume_last", enabled).apply()
         _uiState.update { it.copy(harkResumeLast = enabled) }
@@ -563,8 +793,48 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshHarkProjects(bot: SyncedBot) {
+        val cred = _uiState.value.harkCredential(bot)
+        if (cred != null) {
+            viewModelScope.launch {
+                runCatching {
+                    val projects = harkDirect.listProjects(cred)
+                    val statuses = runCatching { harkDirect.listStatuses(cred) }.getOrDefault(emptyMap())
+                    val withStatus = projects.map { project ->
+                        project.copy(status = statuses[project.id])
+                    }
+                    val working = statuses.values.any { it.equals("working", ignoreCase = true) }
+                    _uiState.update { st ->
+                        val bots = st.snapshot.bots.map {
+                            if (it.id == bot.id) it.copy(
+                                harkProjects = withStatus,
+                                activityBusy = working,
+                                activityText = if (working) "正在工作…" else null
+                            ) else it
+                        }
+                        val account = st.snapshot.accounts[bot.activeAccountId]
+                        val accounts = if (account != null) {
+                            st.snapshot.accounts.toMutableMap().apply {
+                                put(
+                                    bot.activeAccountId,
+                                    account.copy(status = if (working) ConnectionStatus.BUSY else ConnectionStatus.ONLINE, statusDetail = null)
+                                )
+                            }
+                        } else st.snapshot.accounts
+                        st.copy(snapshot = st.snapshot.copy(bots = bots, accounts = accounts), lastError = null)
+                    }
+                    vault.saveSnapshotCache(_uiState.value.snapshot)
+                }.onFailure { e ->
+                    if (e is HarkDirectException && (e.status == 401 || e.status == 403)) {
+                        markHarkAuthExpired(bot.id)
+                    } else {
+                        _uiState.update { it.copy(lastError = e.message ?: "Hark 项目刷新失败") }
+                    }
+                }
+            }
+            return
+        }
         val desktop = harkDesktop() ?: run {
-            _uiState.update { it.copy(lastError = "电脑端未连接，无法刷新 Hark 项目") }
+            _uiState.update { it.copy(lastError = "电脑端未连接，且手机没有 Hark 登录凭据") }
             return
         }
         viewModelScope.launch {
@@ -574,8 +844,39 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun openHarkProject(bot: SyncedBot, project: SyncedHarkProject) {
+        val cred = _uiState.value.harkCredential(bot)
+        if (cred != null) {
+            directJobs.remove(bot.id)?.cancel()
+            setTyping(bot.id, false)
+            updateHarkActivity(bot, false)
+            viewModelScope.launch {
+                _uiState.update { st ->
+                    val bots = st.snapshot.bots.map {
+                        if (it.id == bot.id) it.copy(
+                            activeSessionId = project.id,
+                            activeSessionTitle = project.title ?: if (project.kind == "main") "主对话" else "未命名项目",
+                            activeSessionKind = project.kind,
+                            harkProjectsOpen = false
+                        ) else it
+                    }
+                    val messages = st.snapshot.messages.toMutableMap().apply { put(bot.id, emptyList()) }
+                    st.copy(snapshot = st.snapshot.copy(bots = bots, messages = messages), lastError = null)
+                }
+                runCatching {
+                    val messages = harkDirect.fetchMessages(cred, project.id, bot.id, bot.activeAccountId)
+                    if (isActiveHarkConversation(bot.id, project.id)) {
+                        applyHarkMessages(bot.id, messages)
+                        harkDirect.markViewed(cred, project.id)
+                        vault.saveSnapshotCache(_uiState.value.snapshot)
+                    }
+                }.onFailure { e ->
+                    _uiState.update { it.copy(lastError = e.message ?: "Hark 项目加载失败") }
+                }
+            }
+            return
+        }
         val desktop = harkDesktop() ?: run {
-            _uiState.update { it.copy(lastError = "电脑端未连接，无法打开 Hark 项目") }
+            _uiState.update { it.copy(lastError = "电脑端未连接，且手机没有 Hark 登录凭据") }
             return
         }
         viewModelScope.launch {
@@ -593,8 +894,33 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun deleteHarkProject(bot: SyncedBot, conversationId: String) {
+        val cred = _uiState.value.harkCredential(bot)
+        if (cred != null) {
+            viewModelScope.launch {
+                runCatching {
+                    harkDirect.deleteProject(cred, conversationId)
+                    _uiState.update { st ->
+                        val bots = st.snapshot.bots.map {
+                            if (it.id != bot.id) it else it.copy(
+                                harkProjects = it.harkProjects.filter { project -> project.id != conversationId },
+                                activeSessionId = if (it.activeSessionId == conversationId) null else it.activeSessionId,
+                                activeSessionTitle = if (it.activeSessionId == conversationId) null else it.activeSessionTitle,
+                                activeSessionKind = if (it.activeSessionId == conversationId) null else it.activeSessionKind,
+                                harkProjectsOpen = if (it.activeSessionId == conversationId) true else it.harkProjectsOpen
+                            )
+                        }
+                        val messages = st.snapshot.messages.toMutableMap().apply {
+                            if (bot.activeSessionId == conversationId) put(bot.id, emptyList())
+                        }
+                        st.copy(snapshot = st.snapshot.copy(bots = bots, messages = messages), lastError = null)
+                    }
+                    vault.saveSnapshotCache(_uiState.value.snapshot)
+                }.onFailure { e -> _uiState.update { it.copy(lastError = e.message ?: "Hark 项目删除失败") } }
+            }
+            return
+        }
         val desktop = harkDesktop() ?: run {
-            _uiState.update { it.copy(lastError = "电脑端未连接，无法删除 Hark 项目") }
+            _uiState.update { it.copy(lastError = "电脑端未连接，且手机没有 Hark 登录凭据") }
             return
         }
         viewModelScope.launch {
@@ -604,6 +930,15 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun showHarkProjects(bot: SyncedBot) {
+        if (_uiState.value.harkCredential(bot) != null) {
+            _uiState.update { st ->
+                val bots = st.snapshot.bots.map {
+                    if (it.id == bot.id) it.copy(harkProjectsOpen = true) else it
+                }
+                st.copy(snapshot = st.snapshot.copy(bots = bots), lastError = null)
+            }
+            return
+        }
         val desktop = harkDesktop() ?: run {
             _uiState.update { it.copy(lastError = "电脑端未连接") }
             return
@@ -617,6 +952,11 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
     fun stopGeneration(bot: SyncedBot) {
         setTyping(bot.id, false)
         directJobs.remove(bot.id)?.cancel()
+        val cred = _uiState.value.harkCredential(bot)
+        if (cred != null && bot.activeSessionId != null) {
+            viewModelScope.launch { harkDirect.pauseAgent(cred, bot.activeSessionId) }
+            return
+        }
         val desktop = _uiState.value.pairedDesktop
         if (desktop != null && _uiState.value.connectionState.isBridgeConnected) {
             viewModelScope.launch { bridge.stopGeneration(desktop, bot.id) }
@@ -624,6 +964,26 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun startNewSession(bot: SyncedBot) {
+        val cred = _uiState.value.harkCredential(bot)
+        if (cred != null) {
+            directJobs.remove(bot.id)?.cancel()
+            setTyping(bot.id, false)
+            updateHarkActivity(bot, false)
+            viewModelScope.launch {
+                val main = runCatching { harkDirect.mainConversationId(cred) }.getOrNull()
+                if (main != null) {
+                    val current = _uiState.value.snapshot.bots
+                        .firstOrNull { it.id == bot.id }?.activeSessionId
+                    if (current != null && current != main) return@launch
+                    updateBotSession(bot.id, main)
+                    val messages = runCatching {
+                        harkDirect.fetchMessages(cred, main, bot.id, bot.activeAccountId)
+                    }.getOrDefault(emptyList())
+                    if (isActiveHarkConversation(bot.id, main)) applyHarkMessages(bot.id, messages)
+                }
+            }
+            return
+        }
         val desktop = _uiState.value.pairedDesktop
         if (desktop != null && _uiState.value.connectionState.isBridgeConnected) {
             viewModelScope.launch { bridge.startNewSession(desktop, bot.id) }
@@ -800,6 +1160,15 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         return merged
     }
 
+    private fun mergeHarkCreds(incoming: List<HarkCredential>): List<HarkCredential> {
+        if (incoming.isEmpty()) return _uiState.value.harkCredentials
+        val map = _uiState.value.harkCredentials.associateBy { it.accountId }.toMutableMap()
+        incoming.forEach { map[it.accountId] = it }
+        val merged = map.values.toList()
+        vault.saveHarkCredentials(merged)
+        return merged
+    }
+
     private fun appendOrUpdateMessage(botId: String, msg: SyncedMessage) {
         _uiState.update { st ->
             val list = st.snapshot.messages[botId].orEmpty().toMutableList()
@@ -838,6 +1207,7 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     override fun onCleared() {
+        harkStatusJob?.cancel()
         bridge.disconnectWebSocket()
         super.onCleared()
     }

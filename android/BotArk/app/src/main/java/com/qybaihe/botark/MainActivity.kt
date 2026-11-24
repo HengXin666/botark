@@ -8,9 +8,6 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import android.net.VpnService
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.AnimatedVisibility
@@ -154,21 +151,6 @@ private fun BotArkRoot(
     var showScanner by remember { mutableStateOf(false) }
     var showAddHermes by remember { mutableStateOf(false) }
     var showAddPicker by remember { mutableStateOf(false) }
-    val vpnPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
-            val nodes = viewModel.loadVpnNodes()
-            if (nodes.isEmpty()) {
-                viewModel.onVpnError("没有可用的代理节点，请先扫码同步或拉取订阅")
-            } else {
-                com.qybaihe.botark.service.VpnNodeStore.put(nodes)
-                val svc = android.content.Intent(context, com.qybaihe.botark.service.BotArkVpnService::class.java)
-                context.startForegroundService(svc)
-                viewModel.onVpnStarted(nodes)
-            }
-        } else {
-            viewModel.onVpnError("未授予 VPN 权限")
-        }
-    }
     var pendingWebPlatform by remember { mutableStateOf<PlatformId?>(null) }
 
     val handlePickPlatform: (PlatformId) -> Unit = { platform ->
@@ -251,15 +233,15 @@ private fun BotArkRoot(
                     onFetchSubscription = { url -> viewModel.fetchSubscription(url) },
                     subscriptionSummary = state.subscriptionSummary,
                     onStartVpn = {
-                        val intent = VpnService.prepare(context)
-                        if (intent != null) vpnPermissionLauncher.launch(intent) else {
-                            val nodes = viewModel.loadVpnNodes()
-                            if (nodes.isEmpty()) viewModel.onVpnError("没有可用的代理节点，请先扫码同步或拉取订阅")
-                            else {
-                                com.qybaihe.botark.service.VpnNodeStore.put(nodes)
-                                context.startForegroundService(android.content.Intent(context, com.qybaihe.botark.service.BotArkVpnService::class.java))
-                                viewModel.onVpnStarted(nodes)
-                            }
+                        val nodes = viewModel.loadVpnNodes()
+                        if (nodes.isEmpty()) {
+                            viewModel.onVpnError("没有可用的代理节点，请先扫码同步或拉取订阅")
+                        } else {
+                            com.qybaihe.botark.service.VpnNodeStore.put(nodes)
+                            context.startForegroundService(
+                                android.content.Intent(context, com.qybaihe.botark.service.BotArkVpnService::class.java)
+                            )
+                            viewModel.onVpnStarted(nodes)
                         }
                     },
                     onStopVpn = { viewModel.stopVpnProxy(context) }

@@ -520,7 +520,7 @@ private fun SubscriptionSection(
                 Text(summary, fontSize = 11.sp, color = ArkColors.current.textSecondary)
             }
             Text(
-                "支持 HTTP/SOCKS5 URI 列表、base64 订阅、Clash YAML；扫码同步会携带电脑端空闲可用节点（本地代理走加密局域网中继）。手机代理默认不开启，只在手机独立直连时使用；通过电脑桥接的 Hark 等智能体使用电脑端账号代理，局域网桥接流量不会送进代理节点。",
+                "支持 HTTP/SOCKS5 URI 列表、base64 订阅、Clash YAML；扫码会同步账号、分组消息和代理配置。代理内核以本机 mixed-port 运行，只服务 BotArk 自己的 Hark 直连请求，不建立全机 VPN；其他 App 不受影响。",
                 fontSize = 10.sp,
                 color = ArkColors.current.textTertiary
             )

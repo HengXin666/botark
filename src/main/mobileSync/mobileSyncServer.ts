@@ -18,6 +18,7 @@ import {
   buildPairingUri,
   type DirectHermesCredential,
   type MobileBridgeLiveEvent,
+  type MobileHarkCredential,
   type MobileProxyNode,
   type MobileRelayCommand,
   type MobileSyncStateView,
@@ -58,6 +59,10 @@ export interface MobileSyncServerOptions {
   hostName?: string
   appVersion?: string
   getDirectCredentials?: () => DirectHermesCredential[]
+  /** Hark account cookies exported to the phone for native direct mode. */
+  getHarkCredentials?: (
+    snapshot: MobileWorkspaceSnapshot
+  ) => Promise<MobileHarkCredential[]> | MobileHarkCredential[]
   /** Optional portable proxy nodes; local-only desktop upstreams are relayed via authenticated LAN SOCKS listeners. */
   getProxyNodes?: () => Promise<MobileProxyNode[]>
   onCommand?: (command: MobileRelayCommand) => void
@@ -567,6 +572,24 @@ code{color:#93c5fd}</style></head><body><div class="card">
           }
         }
 
+        // Hark session cookies are needed for the phone's native direct mode.
+        // They are encrypted under the same one-time QR key and never enter the
+        // plaintext snapshot or WebSocket stream.
+        let harkCredentialsEnc: string | undefined
+        try {
+          const harkCredentials = this.includeDirectCredentials
+            ? ((await this.options.getHarkCredentials?.(this.latestSnapshot)) ?? [])
+            : []
+          if (harkCredentials.length > 0) {
+            harkCredentialsEnc = encryptAesGcmCombined(
+              JSON.stringify(harkCredentials),
+              this.pairKey
+            )
+          }
+        } catch {
+          /* Hark export must never block pairing */
+        }
+
         // Portable proxy nodes travel under the same one-time QR AES key as
         // direct credentials; the phone stores them in its Keystore vault, never
         // in the plaintext workspace cache.
@@ -593,6 +616,7 @@ code{color:#93c5fd}</style></head><body><div class="card">
           fp,
           snapshot: this.latestSnapshot,
           ...(directCredentialsEnc ? { directCredentialsEnc } : {}),
+          ...(harkCredentialsEnc ? { harkCredentialsEnc } : {}),
           ...(proxyNodesEnc ? { proxyNodesEnc } : {})
         })
         return

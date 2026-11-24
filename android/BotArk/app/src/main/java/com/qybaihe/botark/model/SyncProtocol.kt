@@ -212,6 +212,15 @@ data class DirectHermesCredential(
 )
 
 @Serializable
+data class HarkCredential(
+    val accountId: String,
+    val displayName: String = "",
+    val handle: String = "",
+    val cookie: String,
+    val timezone: String = ""
+)
+
+@Serializable
 data class PairedDesktopInfo(
     val deviceId: String,
     val deviceToken: String,
@@ -273,6 +282,7 @@ data class PairApiResponse(
     val fp: String? = null,
     val snapshot: WorkspaceSnapshot? = null,
     val directCredentialsEnc: String? = null,
+    val harkCredentialsEnc: String? = null,
     val proxyNodesEnc: String? = null
 )
 

@@ -1,16 +1,18 @@
 import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, session as electronSession } from 'electron'
 import {
   MOBILE_SYNC_CHANNELS,
   type DirectHermesCredential,
   type MobileBridgeLiveEvent,
+  type MobileHarkCredential,
   type MobileProxyNode,
   type MobileRelayCommand,
   type MobileSyncStateView,
   type MobileWorkspaceSnapshot
 } from '@shared/mobileSync'
 import { getHermesAccount, listHermesAccountRecords } from '../hermes/hermesStore'
+import { partitionForAccount } from '../webContentsViewManager'
 import { getProxyPoolItemSecret, listProxyPool } from '../muse/accountProxy'
 import { ensureProxyRelays, relayAuth } from '../muse/mihomoManager'
 import { listSyncedProtocolNodes } from '../muse/protocolNodes'
@@ -52,6 +54,42 @@ function collectDirectHermesCredentials(): DirectHermesCredential[] {
   return out
 }
 
+async function collectHarkCredentials(
+  snapshot: MobileWorkspaceSnapshot
+): Promise<MobileHarkCredential[]> {
+  const out: MobileHarkCredential[] = []
+  for (const account of Object.values(snapshot.accounts)) {
+    if (account.platformId !== 'hark') continue
+    try {
+      const ses = electronSession.fromPartition(partitionForAccount(account.id))
+      const cookies = await ses.cookies.get({ url: 'https://app.hark.com' })
+      const cookie = cookies
+        .filter((item) => {
+          // Keep only better-auth session cookies. Cloudflare/analytics cookies
+          // are tied to the desktop IP and must not travel to the phone.
+          if (!item.name || !item.value) return false
+          if (/[\r\n;]/.test(item.name) || /[\r\n;]/.test(item.value)) return false
+          if (item.name === '__Secure-hark.state' || item.name === '__Secure-hark.region_flow') return false
+          return item.name.startsWith('__Secure-hark.') || /^better-auth\.session/i.test(item.name) ||
+            (/hark.*session/i.test(item.name) && !/state|region/i.test(item.name))
+        })
+        .map((item) => `${item.name}=${item.value}`)
+        .join('; ')
+      if (!cookie) continue
+      out.push({
+        accountId: account.id,
+        displayName: account.displayName,
+        handle: account.handle,
+        cookie,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+      })
+    } catch {
+      /* one locked/expired account must not block the rest */
+    }
+  }
+  return out
+}
+
 function isLoopbackHost(host: string): boolean {
   const h = host.trim().toLowerCase()
   return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '0.0.0.0'
@@ -74,10 +112,13 @@ async function collectMobileProxyNodes(): Promise<MobileProxyNode[]> {
   }
 
   try {
-    const free = (await listProxyPool()).filter((item) => !item.assignedAccountId).slice(0, 24)
+    // The phone now runs its own Hark/agent clients, so it needs every proxy
+    // the desktop knows about, including account-assigned ones. The previous
+    // free-only filter could leave an all-assigned pool with zero phone nodes.
+    const available = (await listProxyPool()).slice(0, 64)
     const direct: MobileProxyNode[] = []
-    const relays: Array<{ item: (typeof free)[number]; secret: NonNullable<Awaited<ReturnType<typeof getProxyPoolItemSecret>>> }> = []
-    for (const item of free) {
+    const relays: Array<{ item: (typeof available)[number]; secret: NonNullable<Awaited<ReturnType<typeof getProxyPoolItemSecret>>> }> = []
+    for (const item of available) {
       const secret = await getProxyPoolItemSecret(item.id)
       if (!secret) continue
       if (isLoopbackHost(secret.host)) {
@@ -133,6 +174,7 @@ function ensureServer(): MobileSyncServer {
       storePath: defaultMobileSyncDevicesPath(app.getPath('userData')),
       appVersion: app.getVersion(),
       getDirectCredentials: collectDirectHermesCredentials,
+      getHarkCredentials: collectHarkCredentials,
       getProxyNodes: collectMobileProxyNodes,
       onCommand: dispatchCommandToRenderer,
       onStateChange: broadcastState

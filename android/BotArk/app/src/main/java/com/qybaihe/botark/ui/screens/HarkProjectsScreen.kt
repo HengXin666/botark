@@ -141,7 +141,7 @@ fun HarkProjectsScreen(
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp)) {
                         Icon(Icons.Rounded.FolderOpen, contentDescription = null, tint = palette.textTertiary, modifier = Modifier.size(34.dp))
                         Text("还没有项目", fontSize = 13.sp, color = palette.textSecondary)
-                        Text("在桌面端新建项目后，这里会自动出现", fontSize = 11.sp, color = palette.textTertiary)
+                        Text("刷新后会自动出现；手机直连时会直接读取 Hark 项目", fontSize = 11.sp, color = palette.textTertiary)
                     }
                 }
             } else {

@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.qybaihe.botark.model.DirectHermesCredential
+import com.qybaihe.botark.model.HarkCredential
 import com.qybaihe.botark.model.PairedDesktopInfo
 import com.qybaihe.botark.model.WorkspaceSnapshot
 import com.qybaihe.botark.model.SubscriptionRecord
@@ -69,6 +70,19 @@ class SecureVault(private val context: Context) {
         prefs.edit().remove(KEY_DIRECT_HERMES).apply()
     }
 
+    fun saveHarkCredentials(creds: List<HarkCredential>) {
+        prefs.edit().putString(KEY_HARK_CREDENTIALS, json.encodeToString(creds)).apply()
+    }
+
+    fun loadHarkCredentials(): List<HarkCredential> {
+        val raw = prefs.getString(KEY_HARK_CREDENTIALS, null) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<HarkCredential>>(raw) }.getOrDefault(emptyList())
+    }
+
+    fun clearHarkCredentials() {
+        prefs.edit().remove(KEY_HARK_CREDENTIALS).apply()
+    }
+
     fun saveSnapshotCache(snapshot: WorkspaceSnapshot) {
         runCatching {
             val tmp = File(context.filesDir, "workspace-cache.json.tmp")
@@ -128,6 +142,7 @@ class SecureVault(private val context: Context) {
     companion object {
         private const val KEY_PAIRED_DESKTOP = "paired_desktop_v1"
         private const val KEY_DIRECT_HERMES = "direct_hermes_v1"
+        private const val KEY_HARK_CREDENTIALS = "hark_credentials_v1"
         private const val KEY_SUBSCRIPTION = "subscription_v1"
         private const val KEY_PROXY_NODES = "proxy_nodes_v1"
         private const val KEY_PROXY_USAGE = "proxy_usage_v1"

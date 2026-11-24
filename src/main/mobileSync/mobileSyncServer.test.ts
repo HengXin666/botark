@@ -69,6 +69,14 @@ describe('MobileSyncServer zero-server LAN bridge', () => {
           displayName: 'Hermes Local'
         }
       ],
+      getHarkCredentials: () => [
+        {
+          accountId: 'acc_hark_1',
+          displayName: 'Hark Test',
+          cookie: '__Secure-hark.session_token=test-cookie',
+          timezone: 'Asia/Shanghai'
+        }
+      ],
       getProxyNodes: async () => [
         {
           id: 'p1',
@@ -158,6 +166,7 @@ describe('MobileSyncServer zero-server LAN bridge', () => {
         deviceToken: string
         snapshot: { bots: Array<{ id: string }> }
         directCredentialsEnc?: string
+        harkCredentialsEnc?: string
         proxyNodesEnc?: string
       }
       expect(pairJson.ok).toBe(true)
@@ -167,6 +176,15 @@ describe('MobileSyncServer zero-server LAN bridge', () => {
         apiKey: string
       }>
       expect(decryptedCreds[0]?.apiKey).toBe('hermes-secret-999')
+      expect(pairJson.harkCredentialsEnc).toBeTruthy()
+      const decryptedHark = JSON.parse(decryptAesGcmCombined(pairJson.harkCredentialsEnc!, parsedUri.key)) as Array<{
+        accountId: string
+        cookie: string
+      }>
+      expect(decryptedHark[0]).toMatchObject({
+        accountId: 'acc_hark_1',
+        cookie: '__Secure-hark.session_token=test-cookie'
+      })
       expect(pairJson.proxyNodesEnc).toBeTruthy()
       const decryptedProxies = JSON.parse(decryptAesGcmCombined(pairJson.proxyNodesEnc!, parsedUri.key)) as Array<{
         id: string

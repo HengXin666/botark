@@ -258,9 +258,9 @@ export function MobileSyncSettingsPanel() {
                 className="mt-0.5 rounded border-line"
               />
               <span>
-                <strong className="text-ink">同步可脱机直连的 Hermes 凭据（AES-256-GCM 端到端加密）</strong>
+                <strong className="text-ink">同步可脱机直连的 Hermes / Hark 凭据（AES-256-GCM 端到端加密）</strong>
                 <span className="block text-[11.5px] text-ink-muted">
-                  开启后，配对时会将已配置的 Hermes API Server 地址与密钥用二维码一次性密钥加密传至手机 Keystore；即使电脑休眠，手机端仍可直接连接远程 Hermes。
+                  二维码只负责同步账号、分组消息和登录凭据。开启后会把已配置的 Hermes API Server 地址与密钥、Hark 账号 Cookie 用一次性密钥加密传至手机 Keystore；之后即使电脑关机，手机端也能直接连接远程 Hermes 或 Hark。
                 </span>
               </span>
             </label>

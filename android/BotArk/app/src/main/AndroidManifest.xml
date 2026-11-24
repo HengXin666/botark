@@ -43,11 +43,6 @@
         <service
             android:name=".service.BotArkVpnService"
             android:exported="false"
-            android:foregroundServiceType="specialUse"
-            android:permission="android.permission.BIND_VPN_SERVICE">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
+            android:foregroundServiceType="specialUse" />
     </application>
 </manifest>

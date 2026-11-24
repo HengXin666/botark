@@ -9,6 +9,7 @@ All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 - **Portable proxy nodes**: verified vless URIs are delivered natively to the phone, while desktop-local HTTP/SOCKS nodes are exposed through authenticated LAN SOCKS relay listeners; proxy credentials travel inside the one-time QR AES payload or the encrypted offline bundle and are stored in Android Keystore.
 - **Android multi-protocol proxy + unused-node preference**: the bundled mihomo core accepts vless, HTTP and SOCKS5 nodes from sync/subscriptions, and the proxy group uses a fallback health check over an unused-first ordering to auto-select a working node.
 - **Hark project list, working shortcuts and delete**: desktop and Android now show Hark projects in a recency-first list, surface every `working` project as a quick-switch entry, and allow deleting stuck project conversations from either client.
+- **Native Android Hark direct mode**: the phone can list projects, read and send messages, poll working/unread status, delete projects and load Hark images directly against `app.hark.com` after QR sync; the desktop no longer needs to stay online for Hark.
 - **Hark project state badges**: each project now distinguishes `working`, `unread`, `completed` and `not started`, so an idle project no longer looks identical whether it has never received a task or has just finished one.
 - **Resume last Hark conversation**: an opt-in (default on) setting restores the last project chat on first open; with no history it opens the single working project, or the project page with a working list when several are active.
 
@@ -16,6 +17,8 @@ All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 - **Hark false "已送达但没有回复"**: a still-working Hark project is no longer marked as an unanswered send after the reply poll times out; completion is re-detected from the status monitor and the full reply is reloaded when Hark finishes.
 - **Hark status sync**: working/unread statuses now reach the Android project list continuously instead of only after the desktop project page is opened.
 - **Android working state**: the phone bot list now receives adapter activity, so a running bot shows the pulsing working indicator and activity text instead of looking idle.
+- **QR Hark session import**: pairing now carries Hark better-auth cookies (AES-256-GCM under the one-time QR key) so a paired phone can operate Hark directly without the desktop bridge.
+- **App-only proxy kernel**: the phone now runs the bundled mihomo core as a local mixed-port proxy (`127.0.0.1:17890`) instead of a phone-wide VPN, so no routing loop or other-app leakage; all desktop proxy nodes (including assigned ones) are offered to the phone.
 - **Mobile sync port stability**: the desktop sync server now uses a port outside mihomo's 18800-19999 proxy range, preventing a random fallback port that broke reconnects after desktop restart.
 - **Android VPN LAN bridge**: when the phone proxy is enabled, private LAN/Tailscale addresses now bypass mihomo, so the authenticated desktop bridge is not routed through a remote proxy.
 - **Hark images on Android**: Hark project image artifacts are downloaded through the desktop Hark session and sent to the phone as data URLs, so phone image bubbles no longer depend on `harkatt://` paths.

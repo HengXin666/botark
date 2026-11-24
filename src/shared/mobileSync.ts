@@ -113,6 +113,20 @@ export interface DirectHermesCredential {
   displayName?: string
 }
 
+/**
+ * Hark session material exported once during QR pairing so the phone can
+ * speak to app.hark.com directly instead of treating the desktop as a relay.
+ * The value is encrypted with the one-time pairing key on the wire.
+ */
+export interface MobileHarkCredential {
+  accountId: string
+  displayName?: string
+  handle?: string
+  /** Cookie header for app.hark.com (better-auth session cookies). */
+  cookie: string
+  timezone?: string
+}
+
 export interface PairedMobileDeviceView {
   deviceId: string
   deviceName: string

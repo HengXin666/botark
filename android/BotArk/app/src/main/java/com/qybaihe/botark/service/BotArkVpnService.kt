@@ -4,18 +4,18 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.net.VpnService
 import android.os.Build
-import android.os.ParcelFileDescriptor
+import android.os.IBinder
 
 /**
- * Foreground VpnService that routes all app traffic into the bundled mihomo core.
- * The tun file descriptor from [Builder.establish] is handed to mihomo's tun.fd.
+ * Foreground service that runs the bundled mihomo core in local mixed-port mode.
+ * BotArk clients connect to 127.0.0.1:17890 explicitly; no tun is created, so the
+ * core's own upstream sockets cannot be captured by its own proxy interface.
  */
-class BotArkVpnService : VpnService() {
-    private var tun: ParcelFileDescriptor? = null
+class BotArkVpnService : Service() {
     private var running = false
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -29,46 +29,19 @@ class BotArkVpnService : VpnService() {
             return START_NOT_STICKY
         }
         startForeground(NOTIF_ID, buildNotification())
-        val ok = establishTun() && MihomoManager.startWithTun(this, tun?.fd ?: -1, nodes)
+        val ok = MihomoManager.startLocal(this, nodes)
         if (!ok) stopVpn()
         running = ok
         return if (ok) START_STICKY else START_NOT_STICKY
     }
 
-    private fun establishTun(): Boolean {
-        val builder = Builder()
-            .setSession("BotArk")
-            .setMtu(1500)
-            .addAddress("10.111.0.2", 32)
-            .addRoute("0.0.0.0", 0)
-            .addDnsServer("1.1.1.1")
-            .addDnsServer("8.8.8.8")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            builder.setBlocking(false)
-        }
-        tun = try {
-            builder.establish()
-        } catch (_: Exception) {
-            null
-        }
-        return tun != null
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 
     private fun stopVpn() {
         MihomoManager.stop()
-        try {
-            tun?.close()
-        } catch (_: Exception) {
-        }
-        tun = null
         running = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-    }
-
-    override fun onRevoke() {
-        stopVpn()
-        super.onRevoke()
     }
 
     override fun onDestroy() {
@@ -88,7 +61,7 @@ class BotArkVpnService : VpnService() {
         )
         val n = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("BotArk 代理运行中")
-            .setContentText("已通过内置内核接管网络流量")
+            .setContentText("内置代理内核运行中，仅 BotArk 请求使用")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, "停止", stop).build())
