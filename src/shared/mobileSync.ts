@@ -72,6 +72,19 @@ export interface MobileWorkspaceSnapshot {
   approvals: Record<string, HermesApprovalView[]>
 }
 
+export interface MobileProxyNode {
+  id: string
+  label: string
+  mode: 'vless' | 'http' | 'socks5'
+  /** Empty means the paired desktop host (used by the authenticated LAN relay). */
+  host?: string
+  port?: number
+  username?: string
+  password?: string
+  /** Original vless URI, executed natively by the phone's mihomo core. */
+  uri?: string
+}
+
 export interface DirectHermesCredential {
   accountId: string
   botId?: string

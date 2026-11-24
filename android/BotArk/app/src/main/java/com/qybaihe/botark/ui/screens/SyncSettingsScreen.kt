@@ -520,7 +520,7 @@ private fun SubscriptionSection(
                 Text(summary, fontSize = 11.sp, color = ArkColors.current.textSecondary)
             }
             Text(
-                "支持 URI 列表、base64 订阅、Clash YAML；vless 协议节点经内置内核转为可用出口，开启后由系统 VPN 接管全部流量。",
+                "支持 HTTP/SOCKS5 URI 列表、base64 订阅、Clash YAML；扫码同步会携带电脑端可用节点（本地代理走加密局域网中继），开启时自动优先未使用的可用节点，并由系统 VPN 接管流量。",
                 fontSize = 10.sp,
                 color = ArkColors.current.textTertiary
             )

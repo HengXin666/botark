@@ -8,6 +8,7 @@ import com.qybaihe.botark.model.DirectHermesCredential
 import com.qybaihe.botark.model.PairedDesktopInfo
 import com.qybaihe.botark.model.WorkspaceSnapshot
 import com.qybaihe.botark.model.SubscriptionRecord
+import com.qybaihe.botark.model.SyncedProxyNode
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -96,9 +97,39 @@ class SecureVault(private val context: Context) {
         return runCatching { json.decodeFromString<SubscriptionRecord>(raw) }.getOrNull()
     }
 
+    fun saveProxyNodes(nodes: List<SyncedProxyNode>) {
+        prefs.edit().putString(KEY_PROXY_NODES, json.encodeToString(nodes)).apply()
+    }
+
+    fun loadProxyNodes(): List<SyncedProxyNode> {
+        val raw = prefs.getString(KEY_PROXY_NODES, null) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<SyncedProxyNode>>(raw) }.getOrDefault(emptyList())
+    }
+
+    fun usedProxyNodeIds(): Set<String> {
+        val raw = prefs.getString(KEY_PROXY_USAGE, null) ?: return emptySet()
+        return raw.split('|').filter { it.isNotBlank() }.toSet()
+    }
+
+    fun markProxyNodeUsed(id: String) {
+        if (id.isBlank()) return
+        val next = (usedProxyNodeIds() + id).toList().takeLast(500)
+        prefs.edit().putString(KEY_PROXY_USAGE, next.joinToString("|")).apply()
+    }
+
+    fun clearProxyNodes() {
+        prefs.edit().remove(KEY_PROXY_NODES).apply()
+    }
+
+    fun clearProxyUsage() {
+        prefs.edit().remove(KEY_PROXY_USAGE).apply()
+    }
+
     companion object {
         private const val KEY_PAIRED_DESKTOP = "paired_desktop_v1"
         private const val KEY_DIRECT_HERMES = "direct_hermes_v1"
         private const val KEY_SUBSCRIPTION = "subscription_v1"
+        private const val KEY_PROXY_NODES = "proxy_nodes_v1"
+        private const val KEY_PROXY_USAGE = "proxy_usage_v1"
     }
 }

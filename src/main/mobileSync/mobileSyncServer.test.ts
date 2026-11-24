@@ -69,6 +69,17 @@ describe('MobileSyncServer zero-server LAN bridge', () => {
           displayName: 'Hermes Local'
         }
       ],
+      getProxyNodes: async () => [
+        {
+          id: 'p1',
+          label: '本地代理 1',
+          mode: 'socks5',
+          host: '',
+          port: 29800,
+          username: 'botark_test',
+          password: 'secret-pass'
+        }
+      ],
       onCommand: (cmd) => commands.push(cmd)
     })
 
@@ -147,6 +158,7 @@ describe('MobileSyncServer zero-server LAN bridge', () => {
         deviceToken: string
         snapshot: { bots: Array<{ id: string }> }
         directCredentialsEnc?: string
+        proxyNodesEnc?: string
       }
       expect(pairJson.ok).toBe(true)
       expect(pairJson.snapshot.bots[0]?.id).toBe('bot_1')
@@ -155,6 +167,13 @@ describe('MobileSyncServer zero-server LAN bridge', () => {
         apiKey: string
       }>
       expect(decryptedCreds[0]?.apiKey).toBe('hermes-secret-999')
+      expect(pairJson.proxyNodesEnc).toBeTruthy()
+      const decryptedProxies = JSON.parse(decryptAesGcmCombined(pairJson.proxyNodesEnc!, parsedUri.key)) as Array<{
+        id: string
+        port: number
+        password: string
+      }>
+      expect(decryptedProxies[0]).toMatchObject({ id: 'p1', port: 29800, password: 'secret-pass' })
 
       // 5. Replaying same single-use pair token fails (token auto-rotated!)
       const replay = await fetch(`${base}/api/mobile/v1/pair`, {
@@ -209,15 +228,17 @@ describe('MobileSyncServer zero-server LAN bridge', () => {
       })
 
       // 8. Export offline AirDrop encrypted bundle and verify decryption
-      const bundle = srv.createOfflineEncryptedBundle()
+      const bundle = srv.createOfflineEncryptedBundle([{ id: 'p1', label: '本地代理 1', mode: 'socks5', port: 29800 }])
       const outer = JSON.parse(bundle.bundleJson) as { format: string; payload: string }
       expect(outer.format).toBe('botark-sync-v1')
       const inner = JSON.parse(decryptAesGcmCombined(outer.payload, bundle.transferKey)) as {
         snapshot: { bots: Array<{ name: string }> }
         directCredentials: Array<{ apiKey: string }>
+        proxyNodes: Array<{ id: string }>
       }
       expect(inner.snapshot.bots[0]?.name).toBe('Hermes Local')
       expect(inner.directCredentials[0]?.apiKey).toBe('hermes-secret-999')
+      expect(inner.proxyNodes[0]?.id).toBe('p1')
 
       // 9. Revoking device immediately invalidates token (401)
       srv.revokeDevice(pairJson.deviceId)

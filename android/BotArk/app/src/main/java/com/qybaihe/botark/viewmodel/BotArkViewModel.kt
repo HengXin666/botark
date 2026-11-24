@@ -28,6 +28,9 @@ import com.qybaihe.botark.service.parseSubscription
 import com.qybaihe.botark.service.selectProxyNodes
 import com.qybaihe.botark.service.redactSubscriptionUrl
 import com.qybaihe.botark.service.SyncCrypto
+import com.qybaihe.botark.service.MihomoNode
+import com.qybaihe.botark.service.parseSubscriptionProxyNode
+import com.qybaihe.botark.service.parseSyncedProxyNode
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -166,9 +169,9 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
     /** Parse saved vless protocol URIs into mihomo nodes and return them (empty if none). */
-    fun loadVlessNodes(): List<com.qybaihe.botark.service.MihomoNode> {
+    fun loadVlessNodes(): List<MihomoNode> {
         val rec = vault.loadSubscription() ?: return emptyList()
-        val out = mutableListOf<com.qybaihe.botark.service.MihomoNode>()
+        val out = mutableListOf<MihomoNode>()
         for (uri in rec.result.protocolUris) {
             val n = com.qybaihe.botark.service.parseVlessNode(uri)
             if (n != null) out.add(n)
@@ -176,8 +179,33 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         return out
     }
 
-    fun onVpnStarted(count: Int) {
-        _uiState.update { it.copy(vpnRunning = true, vpnNodeCount = count, vpnMessage = "") }
+    /** Parse saved subscription HTTP/SOCKS5 endpoints into mihomo nodes. */
+    fun loadSubscriptionProxyNodes(): List<MihomoNode> {
+        val rec = vault.loadSubscription() ?: return emptyList()
+        return rec.result.nodes.mapNotNull { parseSubscriptionProxyNode(it) }
+    }
+
+    /**
+     * "Unused first" ordering: synced portable nodes (native vless
+     * URIs + authenticated desktop relays) are preferred over manual subscription
+     * nodes, and nodes never used on this phone come first. The mihomo fallback
+     * group then skips unreachable entries automatically.
+     */
+    fun loadVpnNodes(): List<MihomoNode> {
+        val desktopHost = _uiState.value.pairedDesktop?.activeHost.orEmpty()
+        val synced = vault.loadProxyNodes().mapNotNull { parseSyncedProxyNode(it, desktopHost) }
+        val subscription = loadVlessNodes() + loadSubscriptionProxyNodes()
+        val merged = (synced + subscription).distinctBy {
+            it.id.ifBlank { it.proxyType + "://" + it.server + ":" + it.port }
+        }
+        val used = vault.usedProxyNodeIds()
+        val unused = merged.filter { it.id !in used }
+        return unused + merged.filter { it.id in used }
+    }
+
+    fun onVpnStarted(nodes: List<MihomoNode>) {
+        nodes.firstOrNull()?.id?.let { vault.markProxyNodeUsed(it) }
+        _uiState.update { it.copy(vpnRunning = true, vpnNodeCount = nodes.size, vpnMessage = "") }
     }
 
     fun onVpnError(msg: String) {
@@ -200,10 +228,12 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _uiState.update { it.copy(pairingBusy = true, lastError = null) }
             try {
-                val (info, initialSnapshot, directCreds) = bridge.pair(payload)
+                val pairResult = bridge.pair(payload)
+                val info = pairResult.info
                 vault.savePairedDesktop(info)
-                val mergedCreds = mergeDirectCreds(directCreds)
-                val mergedSnap = mergeWithLocalStandalone(_uiState.value.snapshot, initialSnapshot)
+                vault.saveProxyNodes(pairResult.proxyNodes)
+                val mergedCreds = mergeDirectCreds(pairResult.directCredentials)
+                val mergedSnap = mergeWithLocalStandalone(_uiState.value.snapshot, pairResult.snapshot)
                 vault.saveSnapshotCache(mergedSnap)
                 _uiState.update {
                     it.copy(
@@ -272,6 +302,8 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
         reconnectJob = null
         bridge.disconnectWebSocket()
         vault.clearPairedDesktop()
+        vault.clearProxyNodes()
+        vault.clearProxyUsage()
         _uiState.update {
             it.copy(
                 pairedDesktop = null,
@@ -293,6 +325,7 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
             require(outer.format == "botark-sync-v1") { "不支持的同步包格式：${outer.format}" }
             val plain = SyncCrypto.decryptAesGcmCombined(outer.payload, transferKey).toString(Charsets.UTF_8)
             val inner = json.decodeFromString<OfflineSyncInnerPayload>(plain)
+            vault.saveProxyNodes(inner.proxyNodes.orEmpty())
             val merged = mergeDirectCreds(inner.directCredentials.orEmpty())
             val mergedSnap = mergeWithLocalStandalone(_uiState.value.snapshot, inner.snapshot)
             vault.saveSnapshotCache(mergedSnap)
@@ -641,14 +674,24 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun mergeWithLocalStandalone(
         current: WorkspaceSnapshot,
-        incoming: WorkspaceSnapshot
+        incomingRaw: WorkspaceSnapshot
     ): WorkspaceSnapshot {
+        // Desktop snapshots carry group names + collapsed state. Older peers only
+        // send bot.groupId; synthesise readable sections so scan-sync never drops
+        // grouping information on the floor.
+        val incoming = ensureGroups(incomingRaw)
         val incomingIds = incoming.bots.mapTo(hashSetOf()) { it.id }
         val localOnly = current.bots.filter {
             (it.isStandaloneWeb || it.id.startsWith("bot_and_")) && it.id !in incomingIds
         }
         if (localOnly.isEmpty()) return incoming
-        val groups = if (incoming.groups.isNotEmpty()) incoming.groups else listOf(SyncedGroup("grp_standalone", "个人智能体"))
+        val localOnlyGroupIds = localOnly.mapTo(hashSetOf()) { it.groupId }
+        val localGroups = current.groups.filter { group ->
+            group.id in localOnlyGroupIds && incoming.groups.none { it.id == group.id }
+        }
+        val groups = (incoming.groups + localGroups).ifEmpty {
+            listOf(SyncedGroup("grp_standalone", "个人智能体"))
+        }
         val fallbackGroupId = groups.first().id
         val groupIds = groups.mapTo(hashSetOf()) { it.id }
         val accounts = incoming.accounts.toMutableMap()
@@ -663,6 +706,22 @@ class BotArkViewModel(application: Application) : AndroidViewModel(application) 
             accounts = accounts,
             bots = incoming.bots + extraBots,
             messages = messages
+        )
+    }
+
+    private fun ensureGroups(snapshot: WorkspaceSnapshot): WorkspaceSnapshot {
+        if (snapshot.groups.isNotEmpty()) return snapshot
+        val ids = snapshot.bots.map { it.groupId }.filter { it.isNotBlank() }.distinct()
+        if (ids.isEmpty()) return snapshot
+        // A single implicit "default" group is the old flat-list format.
+        if (ids.size == 1 && ids.first() == "default") return snapshot
+        return snapshot.copy(
+            groups = ids.map { id ->
+                SyncedGroup(
+                    id = id,
+                    name = if (id == "default") "默认分组" else id.take(18)
+                )
+            }
         )
     }
 

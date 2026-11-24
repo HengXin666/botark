@@ -1,4 +1,7 @@
 import * as http from 'node:http'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { app, safeStorage } from 'electron'
 import { ensureNodesPorts, type MihomoNode } from './mihomoManager'
 
 interface NodeMaintItem {
@@ -97,6 +100,40 @@ function probeLocal(port: number, timeoutMs: number): Promise<string | undefined
     }
     setTimeout(() => fin(), timeoutMs + 500)
   })
+}
+
+function protocolNodesFile(): string {
+  return join(app.getPath('userData'), 'synced-protocol-nodes.enc')
+}
+
+/** Persist the last verified vless URIs so mobile devices can execute them natively. */
+export async function saveSyncedProtocolNodes(live: ProtocolLiveNode[]): Promise<void> {
+  try {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) return
+    const records = live.slice(0, 200).map((n) => ({ uri: n.uri, server: n.server, port: n.port, score: n.score, egressIp: n.egressIp }))
+    const enc = await safeStorage.encryptStringAsync(JSON.stringify(records))
+    writeFileSync(protocolNodesFile(), enc.toString('base64'), { encoding: 'utf8', mode: 0o600 })
+  } catch {
+    /* mobile proxy export remains best-effort */
+  }
+}
+
+/** Verified vless URIs for mobile export (newest sync, highest score first). */
+export async function listSyncedProtocolNodes(limit = 24): Promise<string[]> {
+  try {
+    if (!existsSync(protocolNodesFile())) return []
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) return []
+    const enc = Buffer.from(readFileSync(protocolNodesFile(), 'utf8'), 'base64')
+    const dec = await safeStorage.decryptStringAsync(enc)
+    const records = JSON.parse(dec.result) as Array<{ uri?: string; score?: number }>
+    return records
+      .filter((r): r is { uri: string; score?: number } => typeof r?.uri === 'string' && r.uri.startsWith('vless://'))
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .slice(0, Math.max(1, Math.min(limit, 200)))
+      .map((r) => r.uri)
+  } catch {
+    return []
+  }
 }
 
 /** Pull protocol (vless) nodes from node-maint, verify each through mihomo, keep live ones.

@@ -1,4 +1,5 @@
 import { app } from 'electron'
+import { randomBytes } from 'node:crypto'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -21,21 +22,40 @@ export interface MihomoNode {
   realityShortId?: string
 }
 
+export interface ProxyRelayNode {
+  mode: 'http' | 'socks5'
+  host: string
+  port: number
+  username?: string
+  password?: string
+}
+
+interface RelayAuth {
+  username: string
+  password: string
+}
+
 interface Inbound {
   name: string
   type: 'socks'
   port: number
   listen: string
   proxy: string
+  users?: RelayAuth[]
 }
 
 const BASE_PORT = 18800
 const MAX_PORTS = 1200
+const RELAY_BASE_PORT = 29800
+const MAX_RELAY_PORTS = 200
 const START_TIMEOUT_MS = 8000
 
 let child: ChildProcess | null = null
 let nextPort = BASE_PORT
+let nextRelayPort = RELAY_BASE_PORT
 const nodeByPort = new Map<number, MihomoNode>()
+const relayByPort = new Map<number, ProxyRelayNode>()
+let relayAuthCache: RelayAuth | null = null
 
 function binaryPath(): string {
   const env = process.env['BOTARK_MIHOMO_BIN']
@@ -54,6 +74,38 @@ function configDir(): string {
   const dir = join(app.getPath('userData'), 'mihomo')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   return dir
+}
+
+function relayAuthPath(): string {
+  return join(configDir(), 'relay-auth.json')
+}
+
+/** Stable LAN listener credentials for the mobile proxy gateway. */
+export function relayAuth(): RelayAuth {
+  if (relayAuthCache) return relayAuthCache
+  const file = relayAuthPath()
+  try {
+    if (existsSync(file)) {
+      const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<RelayAuth>
+      if (parsed.username && parsed.password) {
+        relayAuthCache = { username: parsed.username, password: parsed.password }
+        return relayAuthCache
+      }
+    }
+  } catch {
+    /* regenerate below */
+  }
+  const generated: RelayAuth = {
+    username: 'botark_' + randomBytes(4).toString('hex'),
+    password: randomBytes(18).toString('base64url')
+  }
+  try {
+    writeFileSync(file, JSON.stringify(generated), { encoding: 'utf8', mode: 0o600 })
+  } catch {
+    /* best effort; still usable in-memory */
+  }
+  relayAuthCache = generated
+  return generated
 }
 
 function toProxy(node: MihomoNode, name: string): Record<string, unknown> {
@@ -80,18 +132,44 @@ function toProxy(node: MihomoNode, name: string): Record<string, unknown> {
   return p
 }
 
+function toRelayProxy(node: ProxyRelayNode, name: string): Record<string, unknown> {
+  const p: Record<string, unknown> = {
+    name,
+    type: node.mode,
+    server: node.host,
+    port: node.port
+  }
+  if (node.username) p['username'] = node.username
+  if (node.password) p['password'] = node.password
+  return p
+}
+
 function buildConfig(): string {
-  const proxies = [...nodeByPort.entries()].map(([port, node]) => toProxy(node, 'n' + port))
-  const listeners: Inbound[] = [...nodeByPort.keys()].map((port) => ({
-    name: 's' + port,
-    type: 'socks',
-    port,
-    listen: '127.0.0.1',
-    proxy: 'n' + port
-  }))
+  const proxies: Record<string, unknown>[] = [
+    ...[...nodeByPort.entries()].map(([port, node]) => toProxy(node, 'n' + port)),
+    ...[...relayByPort.entries()].map(([port, node]) => toRelayProxy(node, 'r' + port))
+  ]
+  const auth = relayAuth()
+  const listeners: Inbound[] = [
+    ...[...nodeByPort.keys()].map((port) => ({
+      name: 's' + port,
+      type: 'socks' as const,
+      port,
+      listen: '127.0.0.1',
+      proxy: 'n' + port
+    })),
+    ...[...relayByPort.keys()].map((port) => ({
+      name: 'rs' + port,
+      type: 'socks' as const,
+      port,
+      listen: '0.0.0.0',
+      proxy: 'r' + port,
+      users: [auth]
+    }))
+  ]
   const cfg = {
     'mixed-port': 0,
-    'allow-lan': false,
+    'allow-lan': true,
     mode: 'global',
     'log-level': 'silent',
     proxies,
@@ -173,10 +251,41 @@ export async function ensureNodesPorts(nodes: MihomoNode[]): Promise<number[]> {
   if (changed) await writeAndRestart()
   return ports
 }
+
+/** Expose local http/socks upstreams through authenticated SOCKS listeners on the LAN. */
+export async function ensureProxyRelays(nodes: ProxyRelayNode[]): Promise<number[]> {
+  const ports: number[] = []
+  let changed = false
+  for (const node of nodes) {
+    const key = `${node.mode}://${node.username || ''}@${node.host}:${node.port}`
+    let found = 0
+    for (const [port, existing] of relayByPort.entries()) {
+      const existingKey = `${existing.mode}://${existing.username || ''}@${existing.host}:${existing.port}`
+      if (existingKey === key) {
+        found = port
+        break
+      }
+    }
+    if (!found) {
+      if (relayByPort.size >= MAX_RELAY_PORTS) {
+        ports.push(0)
+        continue
+      }
+      found = nextRelayPort++
+      relayByPort.set(found, node)
+      changed = true
+    }
+    ports.push(found)
+  }
+  if (changed) await writeAndRestart()
+  return ports
+}
 /** Drop all node-port bindings and stop mihomo. */
 export function resetMihomo(): void {
   nodeByPort.clear()
+  relayByPort.clear()
   nextPort = BASE_PORT
+  nextRelayPort = RELAY_BASE_PORT
   stopChild()
   const cfgPath = join(configDir(), 'config.json')
   try {
@@ -199,12 +308,20 @@ export async function restoreMihomoFromFile(): Promise<void> {
   const f = join(configDir(), 'bindings.json')
   if (!existsSync(f)) return
   try {
-    const data = JSON.parse(readFileSync(f, 'utf8')) as Array<{ port: number; node: MihomoNode }>
-    for (const item of data) {
+    const parsed = JSON.parse(readFileSync(f, 'utf8')) as
+      | Array<{ port: number; node: MihomoNode }>
+      | { nodes?: Array<{ port: number; node: MihomoNode }>; relays?: Array<{ port: number; relay: ProxyRelayNode }> }
+    const nodes = Array.isArray(parsed) ? parsed : parsed.nodes || []
+    const relays = Array.isArray(parsed) ? [] : parsed.relays || []
+    for (const item of nodes) {
       nodeByPort.set(item.port, item.node)
       if (item.port >= nextPort) nextPort = item.port + 1
     }
-    if (nodeByPort.size > 0) await writeAndRestart()
+    for (const item of relays) {
+      relayByPort.set(item.port, item.relay)
+      if (item.port >= nextRelayPort) nextRelayPort = item.port + 1
+    }
+    if (nodeByPort.size > 0 || relayByPort.size > 0) await writeAndRestart()
   } catch (err) {
     log('[mihomo] restore failed', err)
   }
@@ -212,7 +329,10 @@ export async function restoreMihomoFromFile(): Promise<void> {
 
 /** Persist current node-port bindings so they survive a restart. */
 export function persistMihomoBindings(): void {
-  const data = [...nodeByPort.entries()].map(([port, node]) => ({ port, node }))
+  const data = {
+    nodes: [...nodeByPort.entries()].map(([port, node]) => ({ port, node })),
+    relays: [...relayByPort.entries()].map(([port, relay]) => ({ port, relay }))
+  }
   try {
     writeFileSync(join(configDir(), 'bindings.json'), JSON.stringify(data), 'utf8')
   } catch (err) {

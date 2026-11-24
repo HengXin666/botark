@@ -18,7 +18,7 @@ import {
   type MuseProxyConfig,
   type MuseProxyMode
 } from './accountProxy'
-import { syncProtocolNodes } from './protocolNodes'
+import { saveSyncedProtocolNodes, syncProtocolNodes } from './protocolNodes'
 import { rebindGrokAccountWatch } from '../grok/grokWatchManager'
 import { rebindDotAccountNetwork } from '../dot/dotClient'
 import { cancelHarkWatch } from '../hark/harkClient'
@@ -316,6 +316,7 @@ export function registerMuseIpc(): void {
       if (!event.sender.isDestroyed()) event.sender.send(MUSE_CHANNELS.event, { type: 'proxy-assign-progress', probed: p.done, live: p.alive, total: p.total, batch: 1, removed: 0, done: false })
     })
     if (live.length > 0) {
+      await saveSyncedProtocolNodes(live)
       const lines = live.map((n) => 'socks5://127.0.0.1:' + n.localPort).join('\n')
       await importProxyPool(lines, 'socks5')
     }

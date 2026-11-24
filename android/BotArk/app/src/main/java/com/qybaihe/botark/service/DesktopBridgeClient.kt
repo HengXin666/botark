@@ -7,6 +7,7 @@ import com.qybaihe.botark.model.PairApiResponse
 import com.qybaihe.botark.model.PairedDesktopInfo
 import com.qybaihe.botark.model.PairingPayload
 import com.qybaihe.botark.model.PlatformId
+import com.qybaihe.botark.model.SyncedProxyNode
 import com.qybaihe.botark.model.WorkspaceSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -56,6 +57,13 @@ private data class ApprovalDecisionBody(
     val decision: String
 )
 
+data class DesktopPairResult(
+    val info: PairedDesktopInfo,
+    val snapshot: WorkspaceSnapshot,
+    val directCredentials: List<DirectHermesCredential>,
+    val proxyNodes: List<SyncedProxyNode>
+)
+
 class DesktopBridgeClient {
     private val json = Json { ignoreUnknownKeys = true }
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
@@ -100,7 +108,7 @@ class DesktopBridgeClient {
 
     suspend fun pair(
         payload: PairingPayload
-    ): Triple<PairedDesktopInfo, WorkspaceSnapshot, List<DirectHermesCredential>> = withContext(Dispatchers.IO) {
+    ): DesktopPairResult = withContext(Dispatchers.IO) {
         val activeHost = probeBestHost(payload.hosts, payload.port)
             ?: throw DesktopBridgeException(
                 "无法连接电脑端（${payload.hosts.joinToString(", ")}），请确认在同一 Wi-Fi / Tailscale 下"
@@ -137,6 +145,13 @@ class DesktopBridgeClient {
             }.getOrDefault(emptyList())
         } ?: emptyList()
 
+        val proxyNodes = respBody.proxyNodesEnc?.takeIf { it.isNotBlank() }?.let { enc ->
+            runCatching {
+                val plain = SyncCrypto.decryptAesGcmCombined(enc, payload.key).toString(Charsets.UTF_8)
+                json.decodeFromString<List<SyncedProxyNode>>(plain)
+            }.getOrDefault(emptyList())
+        } ?: emptyList()
+
         val info = PairedDesktopInfo(
             deviceId = respBody.deviceId!!,
             deviceToken = respBody.deviceToken!!,
@@ -147,7 +162,7 @@ class DesktopBridgeClient {
             fingerprint = respBody.fp ?: payload.fp,
             pairedAtMs = System.currentTimeMillis().toDouble()
         )
-        Triple(info, respBody.snapshot ?: WorkspaceSnapshot.EMPTY, directCreds)
+        DesktopPairResult(info, respBody.snapshot ?: WorkspaceSnapshot.EMPTY, directCreds, proxyNodes)
     }
 
     suspend fun fetchSnapshot(desktop: PairedDesktopInfo): WorkspaceSnapshot = withContext(Dispatchers.IO) {

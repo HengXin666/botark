@@ -150,9 +150,9 @@ export function MobileSyncSettingsPanel() {
     <div className="flex flex-col gap-5 animate-veil-in">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-[18px] font-semibold tracking-tight text-ink">iOS 端无服务器扫码同步</h2>
+          <h2 className="text-[18px] font-semibold tracking-tight text-ink">手机端无服务器扫码同步</h2>
           <p className="mt-0.5 text-[13px] text-ink-secondary">
-            零云端服务器、纯端到端加密：iPhone 与电脑在同一 Wi-Fi / 热点 / Tailscale 下扫码即同步全部 5 大平台助手与实时对话，也支持导出加密 AirDrop 同步包离线导入。
+            零云端服务器、纯端到端加密：Android / iPhone 与电脑在同一 Wi-Fi / 热点 / Tailscale 下扫码即同步全部 5 大平台助手、分组、实时对话与可用代理节点，也支持导出加密同步包离线导入。
           </p>
         </div>
         <Button
@@ -179,7 +179,7 @@ export function MobileSyncSettingsPanel() {
             <>
               <img
                 src={qrDataUrl}
-                alt="BotArk iOS 配对二维码"
+                alt="BotArk 手机端配对二维码"
                 className="size-[220px] rounded-xl bg-white p-1.5 shadow-sm"
               />
               <div className="mt-2.5 flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 font-mono text-[11.5px] text-ink">
@@ -224,7 +224,7 @@ export function MobileSyncSettingsPanel() {
 
             <ol className="space-y-1.5 text-[12.5px] leading-[19px] text-ink-secondary">
               <li>
-                <strong className="text-ink">1.</strong> 在 iPhone 上打开原生 <strong className="text-ink">BotArk iOS</strong> App（源码位于仓库 <code className="font-mono text-[11.5px]">ios/BotArk</code>）
+                <strong className="text-ink">1.</strong> 在手机上打开原生 <strong className="text-ink">BotArk</strong> App（Android 源码位于仓库 <code className="font-mono text-[11.5px]">android/BotArk</code>，iOS 位于 <code className="font-mono text-[11.5px]">ios/BotArk</code>）
               </li>
               <li>
                 <strong className="text-ink">2.</strong> 点击右上角「扫码配对」扫描左侧二维码（单次有效，扫码后自动轮换）
@@ -260,7 +260,7 @@ export function MobileSyncSettingsPanel() {
               <span>
                 <strong className="text-ink">同步可脱机直连的 Hermes 凭据（AES-256-GCM 端到端加密）</strong>
                 <span className="block text-[11.5px] text-ink-muted">
-                  开启后，配对时会将已配置的 Hermes API Server 地址与密钥用二维码一次性密钥加密传至 iPhone Keychain；即使电脑休眠，iOS 仍可直接连接远程 Hermes。
+                  开启后，配对时会将已配置的 Hermes API Server 地址与密钥用二维码一次性密钥加密传至手机 Keystore；即使电脑休眠，手机端仍可直接连接远程 Hermes。
                 </span>
               </span>
             </label>
@@ -316,7 +316,7 @@ export function MobileSyncSettingsPanel() {
           </div>
           <p className="mt-1 break-all font-mono text-[11px] text-ink-secondary">{exportedBundle.filePath}</p>
           <p className="mt-1.5 text-[11.5px] text-ink-secondary">
-            通过 AirDrop 发送此文件到 iPhone 并在 BotArk iOS 中选择导入，粘贴上方解密密钥即可完全离线同步，无需同一 Wi-Fi！
+            通过 AirDrop / 文件传输发送此文件到手机并在 BotArk 手机端选择导入，粘贴上方解密密钥即可完全离线同步，无需同一 Wi-Fi！
           </p>
         </div>
       )}
@@ -325,7 +325,7 @@ export function MobileSyncSettingsPanel() {
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <h3 className="text-[14px] font-semibold text-ink">
-            已授权的 iOS 设备（{state?.devices.length ?? 0}）
+            已授权的手机设备（{state?.devices.length ?? 0}）
           </h3>
           {(state?.devices.length ?? 0) > 0 && (
             <Button size="sm" variant="ghost" onClick={() => void handleRevoke('*')}>
@@ -336,7 +336,7 @@ export function MobileSyncSettingsPanel() {
 
         {!state || state.devices.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-line bg-surface/50 px-6 py-8 text-center text-[12.5px] text-ink-muted">
-            暂无已配对的 iOS 设备。开启上方同步桥并用 BotArk iOS 扫码即可自动出现在这里。
+            暂无已配对的手机设备。开启上方同步桥并用 BotArk 手机端扫码即可自动出现在这里。
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-soft">

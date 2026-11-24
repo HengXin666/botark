@@ -18,6 +18,7 @@ import {
   buildPairingUri,
   type DirectHermesCredential,
   type MobileBridgeLiveEvent,
+  type MobileProxyNode,
   type MobileRelayCommand,
   type MobileSyncStateView,
   type MobileWorkspaceSnapshot,
@@ -56,6 +57,8 @@ export interface MobileSyncServerOptions {
   hostName?: string
   appVersion?: string
   getDirectCredentials?: () => DirectHermesCredential[]
+  /** Optional portable proxy nodes; local-only desktop upstreams are relayed via authenticated LAN SOCKS listeners. */
+  getProxyNodes?: () => Promise<MobileProxyNode[]>
   onCommand?: (command: MobileRelayCommand) => void
   onStateChange?: (state: MobileSyncStateView) => void
 }
@@ -446,7 +449,7 @@ export class MobileSyncServer {
    * Build an AES-256-GCM encrypted offline transfer bundle (`.botark-sync`)
    * so users can AirDrop it directly to BotArk iOS without even needing the same Wi-Fi LAN.
    */
-  createOfflineEncryptedBundle(): { bundleJson: string; transferKey: string; fingerprint: string } {
+  createOfflineEncryptedBundle(proxyNodes: MobileProxyNode[] = []): { bundleJson: string; transferKey: string; fingerprint: string } {
     const transferKey = generateAes256KeyBase64Url()
     const fp = fingerprintFromKey(transferKey)
     const directCredentials = this.includeDirectCredentials
@@ -457,7 +460,8 @@ export class MobileSyncServer {
       exportedAtMs: Date.now(),
       hostName: this.hostLabel,
       snapshot: this.latestSnapshot,
-      directCredentials
+      directCredentials,
+      proxyNodes
     })
     const ciphertext = encryptAesGcmCombined(innerPayload, transferKey)
     const outer = {
@@ -562,6 +566,19 @@ code{color:#93c5fd}</style></head><body><div class="card">
           }
         }
 
+        // Portable proxy nodes travel under the same one-time QR AES key as
+        // direct credentials; the phone stores them in its Keystore vault, never
+        // in the plaintext workspace cache.
+        let proxyNodesEnc: string | undefined
+        try {
+          const proxyNodes = (await this.options.getProxyNodes?.()) ?? []
+          if (proxyNodes.length > 0) {
+            proxyNodesEnc = encryptAesGcmCombined(JSON.stringify(proxyNodes), this.pairKey)
+          }
+        } catch {
+          /* proxy export must never block pairing */
+        }
+
         const fp = fingerprintFromKey(this.pairKey)
         // Rotate pairing token immediately after successful single-use pairing!
         this.rotatePairingSecretsInternal()
@@ -574,7 +591,8 @@ code{color:#93c5fd}</style></head><body><div class="card">
           hostName: this.hostLabel,
           fp,
           snapshot: this.latestSnapshot,
-          ...(directCredentialsEnc ? { directCredentialsEnc } : {})
+          ...(directCredentialsEnc ? { directCredentialsEnc } : {}),
+          ...(proxyNodesEnc ? { proxyNodesEnc } : {})
         })
         return
       }

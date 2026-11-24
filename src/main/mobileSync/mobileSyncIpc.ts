@@ -1,14 +1,19 @@
+import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import {
   MOBILE_SYNC_CHANNELS,
   type DirectHermesCredential,
   type MobileBridgeLiveEvent,
+  type MobileProxyNode,
   type MobileRelayCommand,
   type MobileSyncStateView,
   type MobileWorkspaceSnapshot
 } from '@shared/mobileSync'
 import { getHermesAccount, listHermesAccountRecords } from '../hermes/hermesStore'
+import { getProxyPoolItemSecret, listProxyPool } from '../muse/accountProxy'
+import { ensureProxyRelays, relayAuth } from '../muse/mihomoManager'
+import { listSyncedProtocolNodes } from '../muse/protocolNodes'
 import { defaultMobileSyncDevicesPath, MobileSyncServer } from './mobileSyncServer'
 
 let syncServer: MobileSyncServer | null = null
@@ -47,12 +52,88 @@ function collectDirectHermesCredentials(): DirectHermesCredential[] {
   return out
 }
 
+function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase()
+  return h === '127.0.0.1' || h === 'localhost' || h === '::1' || h === '0.0.0.0'
+}
+
+async function collectMobileProxyNodes(): Promise<MobileProxyNode[]> {
+  const out: MobileProxyNode[] = []
+  try {
+    const uris = await listSyncedProtocolNodes(24)
+    uris.forEach((uri, index) => {
+      out.push({
+        id: 'vless:' + createHash('sha1').update(uri).digest('hex').slice(0, 12),
+        label: `协议节点 ${index + 1}`,
+        mode: 'vless',
+        uri
+      })
+    })
+  } catch {
+    /* no verified protocol nodes yet */
+  }
+
+  try {
+    const free = (await listProxyPool()).filter((item) => !item.assignedAccountId).slice(0, 24)
+    const direct: MobileProxyNode[] = []
+    const relays: Array<{ item: (typeof free)[number]; secret: NonNullable<Awaited<ReturnType<typeof getProxyPoolItemSecret>>> }> = []
+    for (const item of free) {
+      const secret = await getProxyPoolItemSecret(item.id)
+      if (!secret) continue
+      if (isLoopbackHost(secret.host)) {
+        relays.push({ item, secret })
+      } else {
+        direct.push({
+          id: 'pool:' + item.id,
+          label: `${secret.mode.toUpperCase()} ${secret.host}:${secret.port}`,
+          mode: secret.mode === 'http' ? 'http' : 'socks5',
+          host: secret.host,
+          port: secret.port,
+          username: secret.username,
+          password: secret.password
+        })
+      }
+    }
+    out.push(...direct)
+
+    if (relays.length > 0) {
+      const ports = await ensureProxyRelays(
+        relays.map(({ secret }) => ({
+          mode: secret.mode === 'http' ? 'http' as const : 'socks5' as const,
+          host: secret.host,
+          port: secret.port,
+          username: secret.username,
+          password: secret.password
+        }))
+      )
+      const auth = relayAuth()
+      relays.forEach(({ item }, index) => {
+        const port = ports[index] || 0
+        if (!port) return
+        out.push({
+          id: 'relay:' + item.id,
+          label: `本地代理 ${index + 1}`,
+          mode: 'socks5',
+          host: '',
+          port,
+          username: auth.username,
+          password: auth.password
+        })
+      })
+    }
+  } catch {
+    /* pool may be empty or encryption unavailable */
+  }
+  return out
+}
+
 function ensureServer(): MobileSyncServer {
   if (!syncServer) {
     syncServer = new MobileSyncServer({
       storePath: defaultMobileSyncDevicesPath(app.getPath('userData')),
       appVersion: app.getVersion(),
       getDirectCredentials: collectDirectHermesCredentials,
+      getProxyNodes: collectMobileProxyNodes,
       onCommand: dispatchCommandToRenderer,
       onStateChange: broadcastState
     })
@@ -86,7 +167,8 @@ export function registerMobileSyncIpc(): void {
 
   ipcMain.handle(MOBILE_SYNC_CHANNELS.exportOfflineBundle, async (event) => {
     const srv = ensureServer()
-    const { bundleJson, transferKey, fingerprint } = srv.createOfflineEncryptedBundle()
+    const proxyNodes = await collectMobileProxyNodes().catch(() => [])
+    const { bundleJson, transferKey, fingerprint } = srv.createOfflineEncryptedBundle(proxyNodes)
     const win = BrowserWindow.fromWebContents(event.sender) ?? undefined
     const defaultName = `BotArk-Sync-${fingerprint}.botark-sync`
     const result = win

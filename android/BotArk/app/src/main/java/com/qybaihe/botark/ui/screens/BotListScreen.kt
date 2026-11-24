@@ -24,11 +24,18 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Dns
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -81,6 +88,9 @@ fun BotListScreen(
 ) {
     val palette = ArkColors.current
     var selectedPlatform by remember { mutableStateOf<PlatformId?>(null) }
+    // Sync carries the desktop's collapsed flags; tapping a group overrides it
+    // locally without mutating the paired workstation's sidebar.
+    var collapsedGroups by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
 
     Box(modifier = Modifier.fillMaxSize().background(palette.canvas)) {
         // Subtle top prismatic atmosphere
@@ -248,9 +258,19 @@ fun BotListScreen(
                         state.snapshot.groups.forEach { group ->
                             val members = unpinned.filter { it.groupId == group.id }
                             if (members.isNotEmpty()) {
+                                val collapsed = collapsedGroups[group.id] ?: group.collapsed
                                 item(key = "grp_${group.id}") {
                                     Box(Modifier.padding(horizontal = 18.dp)) {
-                                        EditorialBotGroupCard(group.name, members, state, onOpenBot)
+                                        EditorialBotGroupCard(
+                                            title = group.name,
+                                            bots = members,
+                                            state = state,
+                                            onOpenBot = onOpenBot,
+                                            collapsed = collapsed,
+                                            onToggle = {
+                                                collapsedGroups = collapsedGroups + (group.id to !collapsed)
+                                            }
+                                        )
                                     }
                                 }
                             }
@@ -618,35 +638,66 @@ private fun EditorialBotGroupCard(
     title: String,
     bots: List<SyncedBot>,
     state: BotArkUiState,
-    onOpenBot: (String) -> Unit
+    onOpenBot: (String) -> Unit,
+    collapsed: Boolean = false,
+    onToggle: (() -> Unit)? = null
 ) {
     val palette = ArkColors.current
     val cardShape = RoundedCornerShape(18.dp)
 
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Text(
-            text = title,
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = palette.textSecondary,
-            modifier = Modifier.padding(horizontal = 2.dp)
-        )
-        Column(
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(5.dp, cardShape, ambientColor = Color.Black.copy(alpha = 0.05f))
-                .clip(cardShape)
-                .background(palette.surface)
-                .border(0.8.dp, palette.hairline, cardShape)
+                .then(if (onToggle != null) Modifier.clickable(onClick = onToggle) else Modifier)
+                .padding(horizontal = 2.dp, vertical = 1.dp)
         ) {
-            bots.forEachIndexed { idx, bot ->
-                EditorialBotRow(bot = bot, state = state, onClick = { onOpenBot(bot.id) })
-                if (idx < bots.lastIndex) {
-                    HorizontalDivider(
-                        thickness = 0.6.dp,
-                        color = palette.hairline,
-                        modifier = Modifier.padding(start = 64.dp)
-                    )
+            Text(
+                text = title,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = palette.textSecondary,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Text(
+                text = bots.size.toString(),
+                fontSize = 10.5.sp,
+                fontFamily = ArkMonoFamily,
+                color = palette.textTertiary
+            )
+            if (onToggle != null) {
+                Icon(
+                    imageVector = if (collapsed) Icons.AutoMirrored.Rounded.KeyboardArrowRight else Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = if (collapsed) "展开分组" else "收起分组",
+                    tint = palette.textTertiary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = !collapsed,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(5.dp, cardShape, ambientColor = Color.Black.copy(alpha = 0.05f))
+                    .clip(cardShape)
+                    .background(palette.surface)
+                    .border(0.8.dp, palette.hairline, cardShape)
+            ) {
+                bots.forEachIndexed { idx, bot ->
+                    EditorialBotRow(bot = bot, state = state, onClick = { onOpenBot(bot.id) })
+                    if (idx < bots.lastIndex) {
+                        HorizontalDivider(
+                            thickness = 0.6.dp,
+                            color = palette.hairline,
+                            modifier = Modifier.padding(start = 64.dp)
+                        )
+                    }
                 }
             }
         }

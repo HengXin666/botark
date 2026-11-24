@@ -1,6 +1,8 @@
 package com.qybaihe.botark.service
 
 import android.content.Context
+import com.qybaihe.botark.model.ProxyNode
+import com.qybaihe.botark.model.SyncedProxyNode
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -8,14 +10,19 @@ import java.util.concurrent.atomic.AtomicBoolean
 data class MihomoNode(
     val server: String,
     val port: Int,
-    val uuid: String,
-    val tls: Boolean,
-    val servername: String,
-    val network: String,
-    val wsPath: String,
-    val wsHost: String,
-    val realityPublicKey: String?,
-    val realityShortId: String?
+    val uuid: String = "",
+    val tls: Boolean = false,
+    val servername: String = "",
+    val network: String = "tcp",
+    val wsPath: String = "/",
+    val wsHost: String = "",
+    val realityPublicKey: String? = null,
+    val realityShortId: String? = null,
+    val proxyType: String = "vless",
+    val username: String? = null,
+    val password: String? = null,
+    val id: String = "",
+    val label: String = ""
 )
 
 /**
@@ -40,11 +47,52 @@ fun parseVlessNode(uri: String): MihomoNode? {
             wsPath = q["path"] ?: "/",
             wsHost = q["host"] ?: q["sni"] ?: server,
             realityPublicKey = if (q["security"] == "reality") q["pbk"] else null,
-            realityShortId = if (q["security"] == "reality") q["sid"] else null
+            realityShortId = if (q["security"] == "reality") q["sid"] else null,
+            id = "vless:" + Integer.toHexString(uri.hashCode()),
+            label = server
         )
     } catch (_: Exception) {
         null
     }
+}
+
+fun parseSubscriptionProxyNode(node: ProxyNode): MihomoNode? {
+    if (node.host.isBlank() || node.port !in 1..65535) return null
+    val mode = node.mode.lowercase()
+    if (mode != "http" && mode != "socks5" && mode != "socks5h") return null
+    return MihomoNode(
+        server = node.host,
+        port = node.port,
+        proxyType = if (mode == "http") "http" else "socks5",
+        username = node.username,
+        password = node.password,
+        id = "sub:" + Integer.toHexString((node.mode + "://" + node.host + ":" + node.port).hashCode()),
+        label = node.host + ":" + node.port
+    )
+}
+
+fun parseSyncedProxyNode(node: SyncedProxyNode, desktopHost: String): MihomoNode? {
+    val mode = node.mode.lowercase()
+    if (mode == "vless") {
+        val parsed = node.uri?.let { parseVlessNode(it) } ?: return null
+        return parsed.copy(
+            id = node.id.ifBlank { parsed.id },
+            label = node.label.ifBlank { parsed.label }
+        )
+    }
+    if (mode != "http" && mode != "socks5" && mode != "socks5h") return null
+    val host = node.host?.takeIf { it.isNotBlank() } ?: desktopHost.takeIf { it.isNotBlank() } ?: return null
+    val port = node.port
+    if (port !in 1..65535) return null
+    return MihomoNode(
+        server = host,
+        port = port,
+        proxyType = if (mode == "http") "http" else "socks5",
+        username = node.username,
+        password = node.password,
+        id = node.id,
+        label = node.label
+    )
 }
 
 private fun parseQuery(raw: String?): Map<String, String> {
@@ -141,7 +189,11 @@ object MihomoManager {
         }
         sb.appendLine("proxy-groups:")
         sb.appendLine("  - name: PROXY")
-        sb.appendLine("    type: select")
+        // fallback skips dead entries in order, while the unused-first ordering
+        // selected in BotArkViewModel gives "自动优选没用过的可用节点" semantics.
+        sb.appendLine("    type: fallback")
+        sb.appendLine("    url: http://www.gstatic.com/generate_204")
+        sb.appendLine("    interval: 300")
         sb.appendLine("    proxies: [" + list.indices.joinToString(", ") { "n$it" }.ifEmpty { "" } + "]")
         sb.appendLine("rules:")
         if (list.isEmpty()) sb.appendLine("  - MATCH,DIRECT") else sb.appendLine("  - MATCH,PROXY")
@@ -150,6 +202,14 @@ object MihomoManager {
 
     private fun appendProxy(sb: StringBuilder, n: MihomoNode, name: String) {
         sb.appendLine("  - name: $name")
+        if (n.proxyType == "http" || n.proxyType == "socks5") {
+            sb.appendLine("    type: " + n.proxyType)
+            sb.appendLine("    server: " + n.server)
+            sb.appendLine("    port: " + n.port)
+            if (!n.username.isNullOrBlank()) sb.appendLine("    username: \"" + n.username.replace("\"", "\\\"") + "\"")
+            if (!n.password.isNullOrBlank()) sb.appendLine("    password: \"" + n.password.replace("\"", "\\\"") + "\"")
+            return
+        }
         sb.appendLine("    type: vless")
         sb.appendLine("    server: " + n.server)
         sb.appendLine("    port: " + n.port)

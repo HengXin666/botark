@@ -171,6 +171,18 @@ data class WorkspaceSnapshot(
 }
 
 @Serializable
+data class SyncedProxyNode(
+    val id: String,
+    val label: String = "",
+    val mode: String = "socks5",
+    val host: String? = null,
+    val port: Int = 0,
+    val username: String? = null,
+    val password: String? = null,
+    val uri: String? = null
+)
+
+@Serializable
 data class DirectHermesCredential(
     val accountId: String,
     val botId: String? = null,
@@ -242,7 +254,8 @@ data class PairApiResponse(
     val hostName: String? = null,
     val fp: String? = null,
     val snapshot: WorkspaceSnapshot? = null,
-    val directCredentialsEnc: String? = null
+    val directCredentialsEnc: String? = null,
+    val proxyNodesEnc: String? = null
 )
 
 @Serializable
@@ -261,7 +274,8 @@ data class OfflineSyncInnerPayload(
     val exportedAtMs: Double = 0.0,
     val hostName: String = "",
     val snapshot: WorkspaceSnapshot = WorkspaceSnapshot.EMPTY,
-    val directCredentials: List<DirectHermesCredential>? = null
+    val directCredentials: List<DirectHermesCredential>? = null,
+    val proxyNodes: List<SyncedProxyNode>? = null
 )
 
 @Serializable

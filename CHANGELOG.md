@@ -2,6 +2,16 @@
 
 All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 
+## [0.11.0] - 2026-11-24
+
+### Added
+- **Android grouped bot list**: desktop groups and their collapsed state now survive QR/offline sync; group headers show bot counts and can be collapsed locally without changing the desktop sidebar.
+- **Portable proxy nodes**: verified vless URIs are delivered natively to the phone, while desktop-local HTTP/SOCKS nodes are exposed through authenticated LAN SOCKS relay listeners; proxy credentials travel inside the one-time QR AES payload or the encrypted offline bundle and are stored in Android Keystore.
+- **Android multi-protocol proxy + unused-node preference**: the bundled mihomo core accepts vless, HTTP and SOCKS5 nodes from sync/subscriptions, and the proxy group uses a fallback health check over an unused-first ordering to auto-select a working node.
+
+### Changed
+- **Mobile sync pairing payload**: pairing and `.botark-sync` exports now optionally carry encrypted proxy nodes; older clients ignore the extra field.
+
 ## [0.10.3] - 2026-11-24
 
 ### Added
