@@ -15,6 +15,7 @@ import { WebSessionPane } from './WebSessionPane'
 import { DocumentCanvasPane } from './NativeDocumentDialog'
 import { t } from '@/lib/i18n'
 import { ChatApprovals } from './ApprovalCard'
+import { HarkProjectsPage } from '@/components/hark/HarkProjectsPage'
 
 const NO_MESSAGES: ChatMessage[] = []
 
@@ -151,6 +152,13 @@ export function ChatArea() {
         )}
       </div>
     )
+  }
+
+  // Hark works in projects: land on the project list first, and enter chat per project.
+  // Keep the chat login surface when the account is signed out or errored.
+  const harkAccountReady = activeAccount?.status !== 'offline' && activeAccount?.status !== 'error'
+  if (bot.platformId === 'hark' && bot.harkProjectsOpen !== false && harkAccountReady) {
+    return <HarkProjectsPage bot={bot} />
   }
 
   // Signed-out accounts on all 4 platforms offer direct partition login; errors and approvals surface as themselves.

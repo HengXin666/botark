@@ -25,6 +25,18 @@ describe('HarkWatchRegistry', () => {
     expect(reg.size('acc')).toBe(0)
   })
 
+  it('cancels only the watches for one conversation', () => {
+    const reg = new HarkWatchRegistry()
+    const a = vi.fn()
+    const b = vi.fn()
+    reg.add('acc', a, undefined, 'project-a')
+    reg.add('acc', b, undefined, 'project-b')
+    reg.cancelConversation('acc', 'project-a')
+    expect(a).toHaveBeenCalledOnce()
+    expect(b).not.toHaveBeenCalled()
+    expect(reg.size('acc')).toBe(1)
+  })
+
   it('a reply returned by a finished watch is never taken again', () => {
     const reg = new HarkWatchRegistry()
     const t1 = reg.add('acc', vi.fn())

@@ -48,8 +48,14 @@ export interface Bot {
   accountIds: string[]
   /** Account used for new messages. Always one of `accountIds`. */
   activeAccountId: string
-  /** Active Muse thread / session id (`session_id`). */
+  /** Active platform thread / session id (Muse session_id, Hark conversation id, …). */
   activeSessionId?: string
+  /** Display title of the active platform thread (Hark project name, …). */
+  activeSessionTitle?: string
+  /** Hark: whether the active conversation is the main thread or a project. */
+  activeSessionKind?: 'main' | 'project'
+  /** Hark: true/undefined shows the project list; false shows the active conversation. */
+  harkProjectsOpen?: boolean
   /** Grok Bot agent UUID to talk to (optional; defaults to first agent). */
   selectedAgentId?: string
   memory: MemoryItem[]
@@ -210,6 +216,10 @@ export interface ChatMessage {
   role: MessageRole
   text: string
   createdAt: number
+  /** Platform thread this message belongs to (Hark project conversation id). */
+  sessionId?: string
+  /** Hark: whether the thread is the main conversation or a project. */
+  sessionKind?: 'main' | 'project'
   delivery?: MessageDelivery
   error?: string
   /** Platform id of the quoted message when replying to a specific bubble. */

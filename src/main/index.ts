@@ -8,6 +8,7 @@ import { registerGrokIpc } from './grok/grokIpc'
 import { stopGrokAccountWatch } from './grok/grokWatchManager'
 import { registerHarkIpc } from './hark/harkIpc'
 import { cancelHarkWatch } from './hark/harkClient'
+import { unwatchAllHarkStatuses } from './hark/harkStatusMonitor'
 import { registerDotIpc } from './dot/dotIpc'
 import { closeCelsiusWatcher } from './dot/dotClient'
 import { registerHermesIpc } from './hermes/hermesIpc'
@@ -177,6 +178,7 @@ app.on('before-quit', () => {
   stopGrokAccountWatch('*')
   closeCelsiusWatcher('*')
   cancelHarkWatch('*')
+  unwatchAllHarkStatuses()
   cancelAllHermesRuns('*')
   cancelAllAntigravityRuns('*')
   void stopMobileSyncServer()

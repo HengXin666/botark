@@ -1,4 +1,4 @@
-import { ChevronRight, Globe, MessageSquarePlus, PanelRight, Pin, PinOff, RefreshCw } from 'lucide-react'
+import { ChevronRight, FolderKanban, Globe, MessageSquarePlus, PanelRight, Pin, PinOff, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { PaneHeader } from '@/components/layout/PaneHeader'
 import { getPlatformInspector } from '@/components/info/platformInspector'
@@ -67,6 +67,7 @@ export function ChatHeader({ bot, accounts: _accounts }: ChatHeaderProps) {
   const startNewMuseSession = useBotStore((s) => s.startNewMuseSession)
   const startNewHermesSession = useBotStore((s) => s.startNewHermesSession)
   const startNewAntigravitySession = useBotStore((s) => s.startNewAntigravitySession)
+  const showHarkProjects = useBotStore((s) => s.showHarkProjects)
   const setSelectedAgent = useBotStore((s) => s.setSelectedAgent)
   const connectAccount = useBotStore((s) => s.connectAccount)
   const typing = useBotStore((s) => s.typing[bot.id] === true)
@@ -161,9 +162,11 @@ export function ChatHeader({ bot, accounts: _accounts }: ChatHeaderProps) {
         />
         <span className="flex min-w-0 flex-col items-start">
           <h1 className="max-w-full min-w-0 truncate text-[14px] leading-[18px] font-medium text-ink">{bot.name}</h1>
-          {status !== 'online' && (
+          {(status !== 'online' || (bot.platformId === 'hark' && bot.activeSessionTitle)) && (
             <span className="-mt-0.5 max-w-full truncate text-[10.5px] leading-[13px] text-ink-muted" data-capsule-status>
-              {STATUS_LABEL[status]}
+              {status !== 'online'
+                ? STATUS_LABEL[status]
+                : `· ${bot.activeSessionTitle}`}
             </span>
           )}
         </span>
@@ -179,6 +182,11 @@ export function ChatHeader({ bot, accounts: _accounts }: ChatHeaderProps) {
       </button>
 
       <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+        {bot.platformId === 'hark' && (
+          <IconButton label="返回项目" onClick={() => showHarkProjects(bot.id)}>
+            <FolderKanban />
+          </IconButton>
+        )}
         {inspector.supportsQuickNewConversation && (
           <IconButton
             label={t('New conversation')}

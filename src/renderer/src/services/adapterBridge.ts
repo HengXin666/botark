@@ -83,7 +83,8 @@ function handleEvent(event: AdapterEvent): void {
           event.widgets,
           event.tools,
           event.media,
-          event.richWidgets
+          event.richWidgets,
+          event.sessionId
         )
       }
       break
@@ -253,6 +254,38 @@ export function startAdapterBridge(): () => void {
           }
           return
         }
+      })
+    )
+  }
+
+  if (bridge?.hark?.onEvent) {
+    unsubscribers.push(
+      bridge.hark.onEvent((event) => {
+        if (event.type !== "openConversation") return
+        const store = useBotStore.getState()
+        const bot = store.bots.find(
+          (b) => b.platformId === "hark" && b.accountIds.includes(event.accountId)
+        )
+        if (!bot) return
+        void (async () => {
+          let title = "Hark 项目"
+          let kind: "main" | "project" = "project"
+          try {
+            const res = await bridge.hark!.rpc({ accountId: event.accountId, op: "listConversations" })
+            if (res.ok && res.data && typeof res.data === "object") {
+              const list = (res.data as {
+                conversations?: Array<{ id?: string; title?: string | null; kind?: string }>
+              }).conversations
+              const found = list?.find((c) => c.id === event.conversationId)
+              if (found?.title?.trim()) title = found.title.trim()
+              if (found?.kind === "main") kind = "main"
+            }
+          } catch {
+            /* title is cosmetic */
+          }
+          store.selectBot(bot.id)
+          await store.openHarkConversation(bot.id, event.conversationId, title, kind).catch(() => undefined)
+        })()
       })
     )
   }

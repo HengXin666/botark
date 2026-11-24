@@ -42,6 +42,8 @@ export class HarkAdapter implements PlatformAdapter {
   private readonly statuses = new Map<string, ConnectionStatus>()
   private readonly listeners = new Set<AdapterListener>()
   private readonly mainConversationId = new Map<string, string>()
+  /** Hark conversations currently reported as `working` by the server. */
+  private readonly workingConversations = new Map<string, Set<string>>()
   private bridgeUnsub: Unsubscribe | null = null
 
   constructor() {
@@ -55,6 +57,43 @@ export class HarkAdapter implements PlatformAdapter {
   }
 
   private handleMainEvent(event: HarkMainEvent): void {
+    if (event.type === 'conversationStatus') {
+      const next = event.statuses ?? {}
+      const previous = event.previous ?? {}
+      const working = new Set(
+        Object.entries(next)
+          .filter(([, status]) => status === 'working')
+          .map(([conversationId]) => conversationId)
+      )
+      this.workingConversations.set(event.accountId, working)
+      for (const conversationId of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+        const wasWorking = previous[conversationId] === 'working'
+        const isWorking = next[conversationId] === 'working'
+        // Re-announce active work every poll so a project opened mid-run shows
+        // its typing state without waiting for another status transition.
+        if (!isWorking && !wasWorking) continue
+        this.emit({
+          type: 'typing',
+          conversationId,
+          accountId: event.accountId,
+          isTyping: isWorking
+        })
+      }
+      this.emit({
+        type: 'activity',
+        accountId: event.accountId,
+        activity: {
+          code: working.size > 0 ? 'working' : 'idle',
+          text: working.size > 0 ? '正在工作…' : null,
+          emoji: null,
+          agentId: null,
+          subagents: 0,
+          busy: working.size > 0
+        }
+      })
+      this.setStatus(event.accountId, working.size > 0 ? 'busy' : 'online')
+      return
+    }
     if (event.type === 'activity') {
       this.emit({
         type: 'activity',
@@ -72,6 +111,7 @@ export class HarkAdapter implements PlatformAdapter {
     }
     if (event.type === 'stream') {
       const convId = event.conversationId ?? event.accountId
+      const sessionId = event.sessionId
       if (!event.done) {
         this.emit({
           type: 'typing',
@@ -85,6 +125,7 @@ export class HarkAdapter implements PlatformAdapter {
             messageId: event.messageId,
             conversationId: convId,
             accountId: event.accountId,
+            sessionId,
             text: event.text,
             tools: event.tools,
             media: event.media,
@@ -98,19 +139,20 @@ export class HarkAdapter implements PlatformAdapter {
           accountId: event.accountId,
           isTyping: false
         })
+        const stillWorking = (this.workingConversations.get(event.accountId)?.size ?? 0) > 0
         this.emit({
           type: 'activity',
           accountId: event.accountId,
           activity: {
-            code: 'idle',
-            text: null,
+            code: stillWorking ? 'working' : 'idle',
+            text: stillWorking ? '正在工作…' : null,
             emoji: null,
             agentId: null,
             subagents: 0,
-            busy: false
+            busy: stillWorking
           }
         })
-        this.setStatus(event.accountId, 'online')
+        this.setStatus(event.accountId, this.statusAfterWork(event.accountId))
         if (event.text || event.tools?.length || event.media?.length || event.richWidgets?.length) {
           this.emit({
             type: 'message',
@@ -118,6 +160,7 @@ export class HarkAdapter implements PlatformAdapter {
               id: event.messageId,
               conversationId: convId,
               accountId: event.accountId,
+              sessionId,
               text: event.text,
               createdAt: Date.now(),
               tools: event.tools,
@@ -172,6 +215,15 @@ export class HarkAdapter implements PlatformAdapter {
     this.emit({ type: 'status', accountId, status, detail })
   }
 
+  /** A send may finish while another Hark conversation is still working. */
+  private statusAfterWork(accountId: string): ConnectionStatus {
+    return (this.workingConversations.get(accountId)?.size ?? 0) > 0 ? 'busy' : 'online'
+  }
+
+  private startStatusWatch(accountId: string): void {
+    void invokeHarkRpc({ accountId, op: 'watchStatus' }).catch(() => undefined)
+  }
+
   private upsert(accountId: string, patch?: Partial<PlatformAccount>): void {
     const prev = this.accounts.get(accountId)
     this.accounts.set(accountId, {
@@ -204,8 +256,9 @@ export class HarkAdapter implements PlatformAdapter {
       }
       this.upsert(accountId, { displayName: status.displayName, handle: status.handle })
       await this.refreshMainConversation(accountId).catch(() => undefined)
-      this.setStatus(accountId, 'online')
-      return 'online'
+      this.startStatusWatch(accountId)
+      this.setStatus(accountId, this.statusAfterWork(accountId))
+      return this.getStatus(accountId)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       this.setStatus(accountId, 'error', detail)
@@ -214,6 +267,8 @@ export class HarkAdapter implements PlatformAdapter {
   }
 
   async disconnect(accountId: string): Promise<void> {
+    await invokeHarkRpc({ accountId, op: 'unwatchStatus' }).catch(() => undefined)
+    this.workingConversations.delete(accountId)
     this.setStatus(accountId, 'offline')
   }
 
@@ -230,8 +285,9 @@ export class HarkAdapter implements PlatformAdapter {
       if (status.signedIn) {
         this.upsert(accountId, { displayName: status.displayName, handle: status.handle })
         await this.refreshMainConversation(accountId).catch(() => undefined)
-        this.setStatus(accountId, 'online')
-        return 'online'
+        this.startStatusWatch(accountId)
+        this.setStatus(accountId, this.statusAfterWork(accountId))
+        return this.getStatus(accountId)
       }
       return this.getStatus(accountId)
     } catch (error) {
@@ -243,6 +299,7 @@ export class HarkAdapter implements PlatformAdapter {
 
   async cancelLogin(accountId: string): Promise<void> {
     const bridge = getBotHubBridge()?.hark
+    await invokeHarkRpc({ accountId, op: 'unwatchStatus' }).catch(() => undefined)
     await bridge?.cancelLogin?.(accountId)
     this.accounts.delete(accountId)
     this.statuses.delete(accountId)
@@ -268,8 +325,10 @@ export class HarkAdapter implements PlatformAdapter {
 
   async sendMessage(message: OutgoingMessage): Promise<SendReceipt> {
     this.bindBridgeEvents()
+    const explicitConversationId = message.sessionId?.trim() || ''
     let conversationId =
-      this.mainConversationId.get(message.accountId) ??
+      explicitConversationId ||
+      this.mainConversationId.get(message.accountId) ||
       (await this.refreshMainConversation(message.accountId))
     if (!conversationId) {
       throw new AdapterError('network', 'No Hark conversation id (main/list empty)')
@@ -286,18 +345,34 @@ export class HarkAdapter implements PlatformAdapter {
 
     let accepted = false
     try {
-      const before = (await invokeHarkRpc({
-        accountId: message.accountId,
-        op: 'mainConversation',
-        timezone: timeZone
-      })) as { conversationId?: string; messages?: Array<{ id: string }> }
-      // The main conversation can change server-side (reset, new day); the
-      // cached id was never refreshed, so sends went to a stale thread.
-      if (before?.conversationId && before.conversationId !== conversationId) {
-        conversationId = before.conversationId
-        this.mainConversationId.set(message.accountId, conversationId)
+      let beforeMsgs: Array<{ id: string }> = []
+      const useMainFlow =
+        message.sessionKind === 'main' ||
+        (!explicitConversationId && message.sessionKind !== 'project') ||
+        (message.sessionKind !== 'project' &&
+          explicitConversationId === this.mainConversationId.get(message.accountId))
+      if (!useMainFlow) {
+        // A project has its own transcript; use it for the reply baseline.
+        const snapshot = (await invokeHarkRpc({
+          accountId: message.accountId,
+          op: 'conversationMessages',
+          conversationId
+        })) as { messages?: Array<{ id: string }> }
+        beforeMsgs = Array.isArray(snapshot?.messages) ? snapshot.messages : []
+      } else {
+        const before = (await invokeHarkRpc({
+          accountId: message.accountId,
+          op: 'mainConversation',
+          timezone: timeZone
+        })) as { conversationId?: string; messages?: Array<{ id: string }> }
+        // The main conversation can change server-side (reset, new day); the
+        // cached id was never refreshed, so sends went to a stale thread.
+        if (before?.conversationId && before.conversationId !== conversationId) {
+          conversationId = before.conversationId
+          this.mainConversationId.set(message.accountId, conversationId)
+        }
+        beforeMsgs = Array.isArray(before?.messages) ? before.messages : []
       }
-      const beforeMsgs = Array.isArray(before?.messages) ? before.messages : []
       const afterIds = beforeMsgs.map((m) => m.id)
 
       const sent = (await invokeHarkRpc({
@@ -349,16 +424,17 @@ export class HarkAdapter implements PlatformAdapter {
         accountId: message.accountId,
         isTyping: false
       })
+      const stillWorking = (this.workingConversations.get(message.accountId)?.size ?? 0) > 0
       this.emit({
         type: 'activity',
         accountId: message.accountId,
         activity: {
-          code: 'idle',
-          text: null,
+          code: stillWorking ? 'working' : 'idle',
+          text: stillWorking ? '正在工作…' : null,
           emoji: null,
           agentId: null,
           subagents: 0,
-          busy: false
+          busy: stillWorking
         }
       })
 
@@ -381,6 +457,7 @@ export class HarkAdapter implements PlatformAdapter {
           id: normalizedReplyId,
           conversationId: message.conversationId,
           accountId: message.accountId,
+          sessionId: conversationId,
           text: replyText,
           createdAt: Date.now(),
           ...(replyTools?.length ? { tools: replyTools } : {}),
@@ -390,7 +467,7 @@ export class HarkAdapter implements PlatformAdapter {
         this.emit({ type: 'message', message: incoming })
       }
 
-      this.setStatus(message.accountId, 'online')
+      this.setStatus(message.accountId, this.statusAfterWork(message.accountId))
       return {
         messageId: createId('msg'),
         acceptedAt: Date.now(),
@@ -404,16 +481,17 @@ export class HarkAdapter implements PlatformAdapter {
         accountId: message.accountId,
         isTyping: false
       })
+      const stillWorking = (this.workingConversations.get(message.accountId)?.size ?? 0) > 0
       this.emit({
         type: 'activity',
         accountId: message.accountId,
         activity: {
-          code: 'idle',
-          text: null,
+          code: stillWorking ? 'working' : 'idle',
+          text: stillWorking ? '正在工作…' : null,
           emoji: null,
           agentId: null,
           subagents: 0,
-          busy: false
+          busy: stillWorking
         }
       })
       const detail = error instanceof Error ? error.message : String(error)
@@ -422,7 +500,7 @@ export class HarkAdapter implements PlatformAdapter {
       const writeTimedOut = /Hark (POST|PUT|PATCH) \S+ timed out/.test(detail)
       if (accepted || writeTimedOut) {
         // The message is (or may be) on Hark already; only the answer is missing.
-        this.setStatus(message.accountId, 'online')
+        this.setStatus(message.accountId, this.statusAfterWork(message.accountId))
         throw new AdapterError('no-reply', `Hark 已收到消息，但读取回复失败：${detail}`)
       }
       const next = statusAfterSendFailure(error)

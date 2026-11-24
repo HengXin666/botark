@@ -336,6 +336,7 @@ export async function fetchConversationSnapshotSummary(
   const ses = await preparedSessionForAccount(accountId)
   const managerId = randomUUID()
   const syncState = new HarkConversationSyncState()
+  let loaded = false
   try {
     const pollRes = (await harkFetch(ses, '/sync/poll', {
       method: 'GET',
@@ -349,6 +350,7 @@ export async function fetchConversationSnapshotSummary(
       }
     })) as { frames?: string[] } | null
     if (pollRes && Array.isArray(pollRes.frames)) {
+      loaded = true
       for (const frame of pollRes.frames) {
         syncState.applyFrame(frame)
       }
@@ -358,6 +360,7 @@ export async function fetchConversationSnapshotSummary(
   }
   return {
     conversationId,
+    loaded,
     messages: syncState.orderedMessages(),
     panels: syncState.extractPanels(),
     asks: syncState.extractAsks(),
@@ -661,6 +664,8 @@ export interface HarkPendingAsk {
 
 export interface HarkConversationSnapshotSummary {
   conversationId: string
+  /** False when the initial sync poll failed (do not treat as an empty chat). */
+  loaded: boolean
   messages: HarkChatMessage[]
   panels: HarkActivityPanel[]
   asks: HarkPendingAsk[]
@@ -1391,6 +1396,11 @@ export function cancelHarkWatch(accountId: string): void {
   activeHarkWatches.cancelAll(accountId)
 }
 
+/** Stop reply watches for one conversation (user switched projects). */
+export function cancelHarkWatchForConversation(accountId: string, conversationId: string): void {
+  activeHarkWatches.cancelConversation(accountId, conversationId)
+}
+
 /**
  * Stream `/api/sync/conversation` SSE (or fallback `/api/sync/poll`) until the
  * assistant reply for `responseMessageId` (or any new assistant message) completes!
@@ -1421,7 +1431,7 @@ export async function watchHarkConversationSync(
     finished = true
     ac.abort()
   }
-  const watchToken = activeHarkWatches.add(accountId, abortWatch, opts.responseMessageId)
+  const watchToken = activeHarkWatches.add(accountId, abortWatch, opts.responseMessageId, conversationId)
 
   const hasPayloadOrActivity = (m?: HarkChatMessage): m is HarkChatMessage =>
     Boolean(

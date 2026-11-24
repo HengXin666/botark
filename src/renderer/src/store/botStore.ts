@@ -132,7 +132,7 @@ export interface BotHubState {
   retryMessage: (botId: string, messageId: string) => Promise<void>
   receiveMessage: (message: IncomingMessage) => void
   /** Upsert a streaming assistant bubble (same id updated as deltas arrive). */
-  applyMessageDelta: (messageId: string, conversationId: string, accountId: string, text: string, widgets?: import('@/types').ChatOptionWidget[], tools?: import('@/types').ChatToolCall[], media?: import('@/types').ChatMediaPart[], richWidgets?: import('@/types').ChatRichWidget[]) => void
+  applyMessageDelta: (messageId: string, conversationId: string, accountId: string, text: string, widgets?: import('@/types').ChatOptionWidget[], tools?: import('@/types').ChatToolCall[], media?: import('@/types').ChatMediaPart[], richWidgets?: import('@/types').ChatRichWidget[], sessionId?: string) => void
   setTyping: (botId: string, isTyping: boolean) => void
   setActivity: (accountId: string, activity: import('@/types').BotActivity | null) => void
   setMessageWidgets: (botId: string, messageId: string, widgets: import('@/types').ChatOptionWidget[]) => void
@@ -144,6 +144,15 @@ export interface BotHubState {
   startNewHermesSession: (botId: string) => Promise<void>
   switchAntigravitySession: (botId: string, sessionId: string) => Promise<void>
   startNewAntigravitySession: (botId: string) => void
+  /** Hark: load one project/main conversation and enter its chat. */
+  openHarkConversation: (
+    botId: string,
+    conversationId: string,
+    title: string,
+    kind?: 'main' | 'project'
+  ) => Promise<void>
+  /** Hark: leave the active chat and show the project list. */
+  showHarkProjects: (botId: string) => void
 
   // Bot details
   updateNotes: (botId: string, notes: string) => void
@@ -294,6 +303,94 @@ function isOmittedPlaceholderText(text: string): boolean {
   return text.startsWith('[消息内容较大') || text.startsWith('[Message body omitted')
 }
 
+type HarkSnapshotRow = {
+  id: string
+  role: string
+  content?: string | null
+  thought?: string | null
+  narration?: string | null
+  createdAt?: string | number | null
+  toolCalls?: Array<{ dispatchId: string; name: string; status: string; url?: string; result?: string }>
+  actions?: Array<{ kind: string; connector?: string; label: string }>
+  media?: ChatMessage['media']
+  richWidgets?: ChatMessage['richWidgets']
+}
+
+/** Map Hark sync-snapshot rows onto BotArk chat bubbles (shared by hydration paths). */
+function harkRowsToMessages(
+  accountId: string,
+  botId: string,
+  rows: HarkSnapshotRow[],
+  sessionId?: string
+): ChatMessage[] {
+  return rows
+    .filter(
+      (m) =>
+        (m.content && m.content.trim()) ||
+        (m.actions && m.actions.length > 0) ||
+        (m.media && m.media.length > 0) ||
+        (m.richWidgets && m.richWidgets.length > 0) ||
+        (m.toolCalls && m.toolCalls.length > 0)
+    )
+    .map((m) => {
+      const isUser = /^user$/i.test(m.role)
+      const ts =
+        typeof m.createdAt === 'number'
+          ? m.createdAt
+          : typeof m.createdAt === 'string'
+            ? Date.parse(m.createdAt) || Date.now()
+            : Date.now()
+      const combinedRich: NonNullable<ChatMessage['richWidgets']> = [...(m.richWidgets ?? [])]
+      if (m.actions && m.actions.length > 0) {
+        combinedRich.push({
+          kind: 'text_with_button',
+          widgetId: `hark_act_${m.id}`,
+          text: '',
+          buttons: m.actions.map((a) => ({
+            label: a.label || `Connect ${a.connector ?? ''}`,
+            actionText: a.connector ? `Connect ${a.connector}` : a.label
+          }))
+        })
+      }
+      const richWidgets = combinedRich.length > 0 ? combinedRich : undefined
+      const tools: ChatMessage['tools'] =
+        m.toolCalls && m.toolCalls.length > 0
+          ? m.toolCalls.map((tc) => ({
+              id: tc.dispatchId,
+              name: tc.name,
+              status: /^(failed|errored|error)$/i.test(tc.status)
+                ? ('errored' as const)
+                : /^(running|pending|active|started|waiting_for_input|awaiting_input)$/i.test(tc.status)
+                  ? ('running' as const)
+                  : ('completed' as const),
+              summary: tc.url || tc.result || m.narration || undefined
+            }))
+          : m.narration || m.thought
+            ? [
+                {
+                  id: `hark_thought_${m.id}`,
+                  name: m.narration ? 'Agent Activity' : 'Thinking',
+                  status: 'completed' as const,
+                  summary: (m.narration || m.thought || '').slice(0, 140)
+                }
+              ]
+            : undefined
+      return {
+        id: isUser ? `hark_u_${m.id}` : `hark_${m.id}`,
+        botId,
+        accountId,
+        role: isUser ? ('user' as const) : ('bot' as const),
+        text: m.content?.trim() || '',
+        createdAt: ts,
+        ...(sessionId ? { sessionId } : {}),
+        delivery: isUser ? ('sent' as const) : undefined,
+        richWidgets,
+        tools,
+        ...(m.media && m.media.length > 0 ? { media: m.media } : {})
+      }
+    })
+}
+
 function mergeHydratedMessages(existing: ChatMessage[], hydrated: ChatMessage[]): ChatMessage[] {
   if (hydrated.length === 0) return existing
   const targetAgentId = hydrated.find((m) => m.agentId)?.agentId
@@ -419,7 +516,8 @@ export const useBotStore = create<BotHubState>()(
     }
 
     const applyReceipt = (receipt: import('@adapters/types').SendReceipt) => {
-      if (receipt.sessionId && receipt.sessionId !== bot.activeSessionId) {
+      const sameThread = !message.sessionId || message.sessionId === bot.activeSessionId
+      if (receipt.sessionId && receipt.sessionId !== bot.activeSessionId && sameThread) {
         patchBot(botId, () => ({ activeSessionId: receipt.sessionId }))
       }
       updateMessage(
@@ -442,7 +540,8 @@ export const useBotStore = create<BotHubState>()(
         adapter.sendMessage({
           conversationId: botId,
           accountId: message.accountId,
-          sessionId: bot.activeSessionId,
+          sessionId: message.sessionId ?? bot.activeSessionId,
+          sessionKind: message.sessionKind ?? bot.activeSessionKind,
           text: message.text,
           attachments: message.attachments,
           replyToId: message.replyToId,
@@ -812,6 +911,8 @@ export const useBotStore = create<BotHubState>()(
         role: 'user',
         text: trimmed,
         createdAt: Date.now(),
+        sessionId: bot.activeSessionId,
+        sessionKind: bot.activeSessionKind,
         delivery: 'sending',
         ...(replyTarget
           ? { replyToId: replyTarget.entryId, replyQuote: replyTarget.quote }
@@ -849,6 +950,13 @@ export const useBotStore = create<BotHubState>()(
           ? incoming.conversationId
           : state.bots.find((b) => b.accountIds.includes(incoming.accountId))?.id
         if (!botId) return state
+        const targetBot = state.bots.find((b) => b.id === botId)
+        // A reply for a project the user already left must not leak into the
+        // currently visible project chat. Re-opening the old project reloads
+        // its snapshot, including this reply.
+        if (incoming.sessionId && targetBot?.activeSessionId && targetBot.activeSessionId !== incoming.sessionId) {
+          return state
+        }
         const list = state.messages[botId] ?? []
         const existingIdx = list.findIndex((m) => m.id === incoming.id)
         const prevText = existingIdx >= 0 ? list[existingIdx]!.text : ''
@@ -875,7 +983,6 @@ export const useBotStore = create<BotHubState>()(
         const incomingMedia = (incoming as { media?: ChatMessage['media'] }).media
         const prevRich = existingIdx >= 0 ? list[existingIdx]!.richWidgets : undefined
         const incomingRich = (incoming as { richWidgets?: ChatMessage['richWidgets'] }).richWidgets
-        const targetBot = state.bots.find((b) => b.id === botId)
         const message: ChatMessage = {
           id: incoming.id,
           botId,
@@ -884,6 +991,7 @@ export const useBotStore = create<BotHubState>()(
           role: 'bot',
           text: mergedText,
           createdAt: existingIdx >= 0 ? list[existingIdx]!.createdAt : incoming.createdAt,
+          ...(incoming.sessionId ? { sessionId: incoming.sessionId } : {}),
           widgets: incomingWidgets?.length ? incomingWidgets : prevWidgets,
           tools: incomingTools?.length ? incomingTools : prevTools,
           media: prevMediaMerge(prevMedia, incomingMedia),
@@ -916,12 +1024,16 @@ export const useBotStore = create<BotHubState>()(
         }
       }),
 
-    applyMessageDelta: (messageId, conversationId, accountId, text, widgets, tools, media, richWidgets) =>
+    applyMessageDelta: (messageId, conversationId, accountId, text, widgets, tools, media, richWidgets, sessionId) =>
       set((state) => {
         const botId = state.bots.some((b) => b.id === conversationId)
           ? conversationId
           : state.bots.find((b) => b.accountIds.includes(accountId))?.id
         if (!botId) return state
+        const activeBot = state.bots.find((b) => b.id === botId)
+        if (sessionId && activeBot?.activeSessionId && activeBot.activeSessionId !== sessionId) {
+          return state
+        }
         const list = state.messages[botId] ?? []
         const existingIdx = list.findIndex((m) => m.id === messageId)
         if (existingIdx >= 0) {
@@ -980,6 +1092,7 @@ export const useBotStore = create<BotHubState>()(
           role: 'bot',
           text,
           createdAt: Date.now(),
+          ...(sessionId ? { sessionId } : {}),
           widgets: widgets?.length ? widgets : undefined,
           tools: tools?.length ? tools : undefined,
           media: media?.length ? media : undefined,
@@ -990,9 +1103,12 @@ export const useBotStore = create<BotHubState>()(
 
     setTyping: (botIdOrAccountId, isTyping) =>
       set((state) => {
-        const botId = state.bots.some((b) => b.id === botIdOrAccountId)
-          ? botIdOrAccountId
-          : state.bots.find((b) => b.accountIds.includes(botIdOrAccountId))?.id ?? botIdOrAccountId
+        const bot =
+          state.bots.find((b) => b.id === botIdOrAccountId) ??
+          state.bots.find((b) => b.activeSessionId === botIdOrAccountId) ??
+          state.bots.find((b) => b.accountIds.includes(botIdOrAccountId))
+        if (!bot) return state
+        const botId = bot.id
         if ((state.typing[botId] === true) === isTyping) return state
         const typing = { ...state.typing }
         if (isTyping) typing[botId] = true
@@ -1330,6 +1446,63 @@ export const useBotStore = create<BotHubState>()(
       }))
     },
 
+    openHarkConversation: async (botId, conversationId, title, kind = 'project') => {
+      const bot = get().bots.find((b) => b.id === botId)
+      if (!bot || bot.platformId !== 'hark') return
+      const bridge = electronBridge()
+      const previousSessionId = bot.activeSessionId
+      if (previousSessionId && previousSessionId !== conversationId) {
+        // Do not let an in-flight reply from the old project land in the new chat.
+        void bridge?.hark
+          ?.rpc({
+            accountId: bot.activeAccountId,
+            op: 'cancelReply',
+            conversationId: previousSessionId
+          })
+          .catch(() => undefined)
+      }
+      let hydrated: ChatMessage[] = []
+      if (bridge?.hark?.rpc) {
+        const res = await bridge.hark.rpc({
+          accountId: bot.activeAccountId,
+          op: 'conversationMessages',
+          conversationId
+        })
+        if (!res.ok) throw new Error(res.message || '加载 Hark 项目失败')
+        const data = res.data as { messages?: HarkSnapshotRow[]; loaded?: boolean }
+        if (data?.loaded === false) throw new Error('加载 Hark 项目失败：无法读取会话快照')
+        hydrated = harkRowsToMessages(bot.activeAccountId, botId, data?.messages ?? [], conversationId)
+        void bridge.hark
+          .rpc({
+            accountId: bot.activeAccountId,
+            op: 'call',
+            method: 'POST',
+            path: `/conversations/${encodeURIComponent(conversationId)}/viewed`
+          })
+          .catch(() => undefined)
+      }
+      set((s) => {
+        const typing = { ...s.typing }
+        delete typing[botId]
+        return {
+          messages: { ...s.messages, [botId]: hydrated },
+          typing
+        }
+      })
+      patchBot(botId, () => ({
+        activeSessionId: conversationId,
+        activeSessionTitle: title,
+        activeSessionKind: kind,
+        harkProjectsOpen: false
+      }))
+    },
+
+    showHarkProjects: (botId) => {
+      const bot = get().bots.find((b) => b.id === botId)
+      if (!bot || bot.platformId !== 'hark') return
+      patchBot(botId, () => ({ harkProjectsOpen: true }))
+    },
+
     updateNotes: (botId, notes) => patchBot(botId, () => ({ notes })),
 
     addMemory: (botId, text) => {
@@ -1542,12 +1715,18 @@ export const useBotStore = create<BotHubState>()(
       try {
         const status = await adapter.connect(accountId)
         patchAccount(accountId, { status, statusDetail: undefined })
-        if (account.platformId === 'hark' && status === 'online') {
+        if (account.platformId === 'hark' && (status === 'online' || status === 'busy')) {
           const bridge = electronBridge()
           const ownerBot = get().bots.find((b) => b.accountIds.includes(accountId))
-          if (ownerBot && bridge?.hark?.rpc) {
+          // Project-list mode has no chat to hydrate; when a project chat is
+          // restored, reload that exact conversation instead of the main one.
+          if (ownerBot && bridge?.hark?.rpc && ownerBot.harkProjectsOpen === false) {
             void bridge.hark
-              .rpc({ accountId, op: 'mainConversation' })
+              .rpc(
+                ownerBot.activeSessionId
+                  ? { accountId, op: 'conversationMessages', conversationId: ownerBot.activeSessionId }
+                  : { accountId, op: 'mainConversation' }
+              )
               .then((res) => {
                 if (!res.ok || !res.data || typeof res.data !== 'object') return
                 const d = res.data as {
@@ -1565,85 +1744,22 @@ export const useBotStore = create<BotHubState>()(
                     richWidgets?: ChatMessage['richWidgets']
                   }>
                 }
-                if (d.conversationId) {
+                if (d.conversationId && !ownerBot.activeSessionId) {
                   patchBot(ownerBot.id, () => ({ activeSessionId: d.conversationId }))
                 }
-                if (Array.isArray(d.messages) && d.messages.length > 0) {
-                  const hydrated: ChatMessage[] = d.messages
-                    .filter(
-                      (m) =>
-                        (m.content && m.content.trim()) ||
-                        (m.actions && m.actions.length > 0) ||
-                        (m.media && m.media.length > 0) ||
-                        (m.richWidgets && m.richWidgets.length > 0)
-                    )
-                    .map((m) => {
-                      const isUser = /^user$/i.test(m.role)
-                      const ts =
-                        typeof m.createdAt === 'number'
-                          ? m.createdAt
-                          : typeof m.createdAt === 'string'
-                            ? Date.parse(m.createdAt) || Date.now()
-                            : Date.now()
-                      const combinedRich: NonNullable<ChatMessage['richWidgets']> = [
-                        ...(m.richWidgets ?? [])
-                      ]
-                      if (m.actions && m.actions.length > 0) {
-                        combinedRich.push({
-                          kind: 'text_with_button',
-                          widgetId: `hark_act_${m.id}`,
-                          text: '',
-                          buttons: m.actions.map((a) => ({
-                            label: a.label || `Connect ${a.connector ?? ''}`,
-                            actionText: a.connector ? `Connect ${a.connector}` : a.label
-                          }))
-                        })
-                      }
-                      const richWidgets = combinedRich.length > 0 ? combinedRich : undefined
-                      const tools: ChatMessage['tools'] =
-                        m.toolCalls && m.toolCalls.length > 0
-                          ? m.toolCalls.map((tc) => ({
-                              id: tc.dispatchId,
-                              name: tc.name,
-                              status:
-                                tc.status === 'running'
-                                  ? 'running'
-                                  : tc.status === 'failed'
-                                    ? 'errored'
-                                    : 'completed',
-                              summary: tc.url || m.narration || undefined
-                            }))
-                          : m.narration || m.thought
-                            ? [
-                                {
-                                  id: `hark_thought_${m.id}`,
-                                  name: m.narration ? 'Agent Activity' : 'Thinking',
-                                  status: 'completed',
-                                  summary: (m.narration || m.thought || '').slice(0, 140)
-                                }
-                              ]
-                            : undefined
-                      return {
-                        id: isUser ? `hark_u_${m.id}` : `hark_${m.id}`,
-                        botId: ownerBot.id,
-                        accountId,
-                        role: isUser ? 'user' : 'bot',
-                        text: m.content?.trim() || '',
-                        createdAt: ts,
-                        delivery: isUser ? 'sent' : undefined,
-                        richWidgets,
-                        tools,
-                        ...(m.media && m.media.length > 0 ? { media: m.media } : {})
-                      }
-                    })
-                  if (hydrated.length > 0) {
-                    set((s) => ({
-                      messages: {
-                        ...s.messages,
-                        [ownerBot.id]: mergeHydratedMessages(s.messages[ownerBot.id] ?? [], hydrated)
-                      }
-                    }))
-                  }
+                if (Array.isArray(d.messages)) {
+                  const hydrated = harkRowsToMessages(
+                    accountId,
+                    ownerBot.id,
+                    d.messages,
+                    ownerBot.activeSessionId ?? d.conversationId
+                  )
+                  set((s) => ({
+                    messages: {
+                      ...s.messages,
+                      [ownerBot.id]: hydrated
+                    }
+                  }))
                 }
               })
               .catch(() => undefined)
@@ -2199,10 +2315,20 @@ export const useBotStore = create<BotHubState>()(
     name: 'bothub-workspace-v1',
     storage: workspaceStorage,
     // Nothing is in flight after a restart; drop stale `sending`/`pending`.
-    merge: (persisted, current) => ({
-      ...current,
-      ...sanitizePersisted((persisted ?? {}) as Partial<BotHubState>)
-    }),
+    merge: (persisted, current) => {
+      const restored = sanitizePersisted((persisted ?? {}) as Partial<BotHubState>)
+      return {
+        ...current,
+        ...restored,
+        // Hark always lands on the project list after a restart. The active
+        // project itself remains in memory via openHarkConversation.
+        bots: (restored.bots ?? current.bots).map((bot) =>
+          bot.platformId === 'hark'
+            ? { ...bot, harkProjectsOpen: true, activeSessionTitle: undefined, activeSessionKind: undefined }
+            : bot
+        )
+      }
+    },
     partialize: (state) => ({
       groups: state.groups,
       bots: state.bots,

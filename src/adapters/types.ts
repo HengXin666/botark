@@ -55,6 +55,8 @@ export interface OutgoingMessage {
   accountId: string
   /** Optional platform thread / session id (e.g. Muse session_id). */
   sessionId?: string
+  /** Hark: whether the target thread is the main conversation or a project. */
+  sessionKind?: 'main' | 'project'
   /** Optional message id being replied to (e.g. Grok reply_to_id). */
   replyToId?: string
   /** Optional quoted snippet when replying. */
@@ -87,6 +89,8 @@ export interface IncomingMessage {
   createdAt: number
   /** Platform id of the message this replies to, when known. */
   replyTo?: string
+  /** Platform thread this message belongs to, when it can differ from conversationId. */
+  sessionId?: string
   widgets?: MuseOptionWidget[]
   tools?: MuseToolCall[]
   media?: MuseMediaPart[]
@@ -265,7 +269,7 @@ export interface AgentActivity {
 
 export type AdapterEvent =
   | { type: 'message'; message: IncomingMessage & { widgets?: MuseOptionWidget[]; richWidgets?: MuseRichWidget[]; tools?: MuseToolCall[]; media?: MuseMediaPart[] } }
-  | { type: 'message_delta'; messageId: string; conversationId: string; accountId: string; text: string; widgets?: MuseOptionWidget[]; richWidgets?: MuseRichWidget[]; tools?: MuseToolCall[]; media?: MuseMediaPart[] }
+  | { type: 'message_delta'; messageId: string; conversationId: string; accountId: string; text: string; sessionId?: string; widgets?: MuseOptionWidget[]; richWidgets?: MuseRichWidget[]; tools?: MuseToolCall[]; media?: MuseMediaPart[] }
   | { type: 'typing'; conversationId: string; accountId: string; isTyping: boolean }
   | { type: 'status'; accountId: string; status: ConnectionStatus; detail?: string }
   | { type: 'activity'; accountId: string; activity: AgentActivity }

@@ -882,6 +882,18 @@ export const HARK_CHANNELS = {
 
 export type HarkMainEvent =
   | {
+      type: 'conversationStatus'
+      accountId: string
+      statuses: Record<string, string>
+      previous: Record<string, string>
+      completed: Array<{ conversationId: string; title: string }>
+    }
+  | {
+      type: 'openConversation'
+      accountId: string
+      conversationId: string
+    }
+  | {
       type: 'login'
       accountId: string
       signedIn: true
@@ -898,6 +910,8 @@ export type HarkMainEvent =
       type: 'stream'
       accountId: string
       conversationId?: string
+      /** Actual platform conversation id (Hark project), distinct from the bot id. */
+      sessionId?: string
       messageId: string
       text: string
       done: boolean
@@ -938,6 +952,11 @@ export type HarkRpcRequest =
   | { accountId: string; op: 'listConversations' }
   | { accountId: string; op: 'mainConversation'; timezone?: string }
   | { accountId: string; op: 'conversationStatus' }
+  | { accountId: string; op: 'conversationMessages'; conversationId: string }
+  | { accountId: string; op: 'createProject'; title?: string; timezone?: string }
+  | { accountId: string; op: 'cancelReply'; conversationId: string }
+  | { accountId: string; op: 'watchStatus' }
+  | { accountId: string; op: 'unwatchStatus' }
   | {
       accountId: string
       op: 'sendMessage'

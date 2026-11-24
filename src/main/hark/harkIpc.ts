@@ -13,6 +13,7 @@ import {
 import {
   callHarkApi,
   cancelHarkWatch,
+  cancelHarkWatchForConversation,
   clearHarkAccount,
   conversationIdFromPayload,
   downloadHarkArtifact,
@@ -38,6 +39,13 @@ import { cancelHarkLogin, onHarkLoginEvent, openHarkLoginWindow } from './harkLo
 import { loadAccountProxyUrl } from '../muse/accountProxy'
 import { guessMediaMimeFromName } from '../mediaMime'
 import { probeHarkSession } from './harkSession'
+import {
+  getHarkStatuses,
+  onHarkStatusEvent,
+  setHarkNotificationClickHandler,
+  unwatchHarkStatuses,
+  watchHarkStatuses
+} from './harkStatusMonitor'
 
 function mapHarkTools(msg: HarkChatMessage): MuseToolCallView[] | undefined {
   if (!msg.toolCalls || msg.toolCalls.length === 0) return undefined
@@ -106,7 +114,11 @@ function broadcast(payload: unknown): void {
 async function statusFor(accountId: string): Promise<HarkAuthStatus> {
   const hasProxy = Boolean(await loadAccountProxyUrl(accountId).catch(() => true))
   const probe = await probeHarkSession(accountId)
-  if ('signedIn' in probe) return { accountId, signedIn: false, hasProxy }
+  if ('signedIn' in probe) {
+    unwatchHarkStatuses(accountId)
+    return { accountId, signedIn: false, hasProxy }
+  }
+  watchHarkStatuses(accountId)
   return {
     accountId,
     signedIn: true,
@@ -164,8 +176,68 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
           }
         }
       }
-      case 'conversationStatus':
+      case 'conversationStatus': {
+        // The monitor already polls every watched account; reuse its snapshot.
+        const cached = getHarkStatuses(req.accountId)
+        if (cached) return { ok: true, data: { statuses: cached } }
         return { ok: true, data: await getConversationStatuses(req.accountId) }
+      }
+      case 'conversationMessages': {
+        if (typeof req.conversationId !== 'string' || !req.conversationId) {
+          return { ok: false, status: 400, message: 'conversationId required' }
+        }
+        const snap = await fetchConversationSnapshotSummary(req.accountId, req.conversationId)
+        const messages = snap.messages.map((m) => ({
+          ...m,
+          media: !/^user$/i.test(m.role) ? mapHarkMedia(m) : undefined,
+          richWidgets: !/^user$/i.test(m.role) ? mapHarkRichWidgets(m) : undefined
+        }))
+        return {
+          ok: true,
+          data: {
+            conversationId: req.conversationId,
+            loaded: snap.loaded,
+            messages,
+            panels: snap.panels,
+            asks: snap.asks,
+            artifacts: snap.artifacts,
+            activeActivity: snap.activeActivity,
+            narration: snap.narration
+          }
+        }
+      }
+      case 'createProject': {
+        const title = typeof req.title === 'string' ? req.title.trim() : ''
+        const raw = (await callHarkApi(req.accountId, {
+          method: 'POST',
+          path: '/conversations',
+          body: {
+            title,
+            timezone: req.timezone ?? timezoneName(),
+            autoTitle: !title
+          }
+        })) as { conversationId?: string; id?: string } | null
+        const conversationId =
+          (typeof raw?.conversationId === 'string' && raw.conversationId) ||
+          (typeof raw?.id === 'string' && raw.id) ||
+          ''
+        if (!conversationId) {
+          return { ok: false, status: 502, message: 'Hark did not return a conversation id' }
+        }
+        return { ok: true, data: { conversationId, title } }
+      }
+      case 'cancelReply':
+        if (typeof req.conversationId !== 'string' || !req.conversationId) {
+          return { ok: false, status: 400, message: 'conversationId required' }
+        }
+        cancelHarkWatchForConversation(req.accountId, req.conversationId)
+        return { ok: true, data: { cancelled: true } }
+      case 'watchStatus':
+        watchHarkStatuses(req.accountId)
+        return { ok: true, data: { watched: true } }
+      case 'unwatchStatus':
+        unwatchHarkStatuses(req.accountId)
+        return { ok: true, data: { watched: false } }
       case 'sendMessage': {
         if (typeof req.conversationId !== 'string' || !req.conversationId) {
           return { ok: false, status: 400, message: 'conversationId required' }
@@ -236,6 +308,7 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
               type: 'stream',
               accountId: req.accountId,
               conversationId: req.botId,
+              sessionId: req.conversationId,
               messageId: `hark_${msg.id}`,
               text,
               done,
@@ -244,14 +317,6 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
               ...(richWidgets ? { richWidgets } : {})
             })
           }
-        })
-
-        // Always clear activity when pollReply finishes
-        broadcast({
-          type: 'activity',
-          accountId: req.accountId,
-          activityCode: 'idle',
-          busy: false
         })
 
         const finalReply = watched.reply
@@ -270,6 +335,7 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
             type: 'stream',
             accountId: req.accountId,
             conversationId: req.botId,
+            sessionId: req.conversationId,
             messageId: msgId,
             text: finalReply.content.trim(),
             done: true,
@@ -297,6 +363,7 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
             type: 'stream',
             accountId: req.accountId,
             conversationId: req.botId,
+            sessionId: req.conversationId,
             messageId: req.responseMessageId ? `hark_${req.responseMessageId}` : 'hark_timeout',
             text: '',
             done: true
@@ -369,6 +436,7 @@ export function registerHarkIpc(): void {
 
   onHarkLoginEvent((event) => {
     if (event.signedIn) {
+      watchHarkStatuses(event.accountId)
       broadcast({
         type: 'login',
         accountId: event.accountId,
@@ -384,6 +452,7 @@ export function registerHarkIpc(): void {
         )
       }
     } else {
+      unwatchHarkStatuses(event.accountId)
       broadcast({
         type: 'login',
         accountId: event.accountId,
@@ -391,6 +460,13 @@ export function registerHarkIpc(): void {
         windowClosed: event.windowClosed
       })
     }
+  })
+
+  onHarkStatusEvent((event) => {
+    broadcast(event)
+  })
+  setHarkNotificationClickHandler((accountId, conversationId) => {
+    broadcast({ type: 'openConversation', accountId, conversationId })
   })
 
   ipcMain.handle(HARK_CHANNELS.openLogin, async (event, request: unknown) => {
@@ -438,6 +514,7 @@ export function registerHarkIpc(): void {
 
   ipcMain.handle(HARK_CHANNELS.clearAuth, async (_event, accountId: unknown) => {
     if (typeof accountId !== 'string' || !accountId.trim()) throw new TypeError('Invalid accountId')
+    unwatchHarkStatuses(accountId.trim())
     await clearHarkAccount(accountId.trim())
     broadcast({
       type: 'login',
