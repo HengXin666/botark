@@ -3,7 +3,6 @@ import { AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { syncHarkPool } from '@/lib/harkPoolSync'
 
-/** One click: pull the local Hark pool, import new tokens and sort every account into Pro2 / Pro1. */
 export function HarkPoolImport() {
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState('')
@@ -35,7 +34,7 @@ export function HarkPoolImport() {
     <div className="flex flex-col items-end gap-1">
       <Button variant="secondary" size="sm" disabled={busy} onClick={() => void sync()}>
         <RefreshCw className={busy ? 'size-3.5 animate-spin' : 'size-3.5'} />
-        {busy ? '正在同步…' : '一键同步 Hark 号池'}
+        {busy ? '正在同步...' : '一键同步 Hark 号池'}
       </Button>
       {done && (
         <span className="inline-flex items-center gap-1 text-[11px] text-ink-muted">

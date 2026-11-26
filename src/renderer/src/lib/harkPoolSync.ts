@@ -54,7 +54,7 @@ async function eachLimit<T>(items: T[], limit: number, run: (item: T) => Promise
 export async function syncHarkPool(onProgress?: (text: string) => void): Promise<HarkPoolSyncResult> {
   const hark = getBridge()?.hark
   if (!hark?.importCredentials) throw new Error('仅桌面版可用')
-  onProgress?.('正在读取 Hark 号池…')
+  onProgress?.('正在读取 Hark 号池...')
   const [exportRes, quotaRes] = await Promise.all([
     fetch(GATEWAY + '/api/accounts/export?with_token=1'),
     fetch(GATEWAY + '/api/quota')
@@ -112,7 +112,7 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
     useBotStore.getState().addBot({
       id: `bot_${accountId}`,
       platformId: 'hark',
-      name: uniqueName(`Hark · ${local}`, useBotStore.getState().bots.map((item) => item.name)),
+      name: uniqueName(`Hark ${local}`, useBotStore.getState().bots.map((item) => item.name)),
       emoji: '✨',
       accounts: [{ key: accountId, accountId, displayName: account.email, handle: account.email }],
       group: { kind: 'existing', groupId },
