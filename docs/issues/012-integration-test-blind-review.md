@@ -34,7 +34,7 @@
 
 ## 执行记录
 
-- 变更范围：本分支两个提交 `c9c9a13`（功能）+ `12059ff`（盲审修复）；文档与脚本随提交维护。
+- 变更范围：本分支三个提交 `c9c9a13`（功能）+ `12059ff`（盲审修复）+ `605fb5c`（文档/命名收尾）。
 - `npm run typecheck`：PASS（node + web）。
 - `npm test`：PASS，57 文件 / 343 用例。
 - `npm run build`：PASS（electron-vite main/preload/renderer）。
