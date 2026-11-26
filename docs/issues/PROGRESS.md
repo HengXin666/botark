@@ -23,6 +23,13 @@
 - 真实 Electron UI smoke：当前机器有用户正在运行的 BotArk 单实例，无法安全启动第二实例；未做真实 Hark 登录/真实代理的端到端 smoke。
 - 独立盲审：首轮发现 4 个阻断项（管理员 UI、WebView LRU attach、敏感路径 symlink、门户 dispose 生命周期），已在 12059ff 修复并补测试；第二位独立盲审员复审 **通过**（57 文件 / 343 用例、typecheck/build 均通过）。
 
+## 1.0.0 发布前验证
+
+- Android Gradle `testDebugUnitTest`：21 个 JVM 用例通过（HarkProjectPolicy 5、MihomoManager 4、SubscriptionParse 6、SyncProtocol 6）。
+- Android debug APK 构建通过；x86_64 模拟器安装启动成功（versionCode 7 / versionName 1.0.0，空账号首页显示正常，无 FATAL EXCEPTION）。
+- Android arm64 release APK 已重新构建：`release/BotArk-1.0.0-android.apk`。
+- 桌面端 `npm run dist:linux` 已生成 `release/BotArk-1.0.0-x86_64.AppImage`。
+
 ## 待办/风险
 
 - 无已知代码阻断；Hark 真实账号的房间/Portal smoke、真实代理测速 smoke 待补。

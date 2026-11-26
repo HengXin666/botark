@@ -2,6 +2,28 @@
 
 All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 
+## [1.0.0] - 2026-11-27
+
+### Added
+- **协作空间（Rooms）**: 新增房间数据模型、持久化、成员队列、@mention、`[FINAL]`/`[HANDOFF]` 协议、管理员调度、房间导出与完整的 Rooms 侧栏/房间/成员/设置界面。
+- **Workspace MCP**: 新增共享 Workspace 文件工具、MCP/stdio/SSE/streamable-http hub、目录绑定、敏感路径拦截和人工审批；Composer 与房间 Inspector 均接入 Workspace 工具面板。
+- **Hark Workspace Portal**: Hark 可通过本机门户访问工作区；127.0.0.1 绑定、随机 token、敏感路径拦截、写操作审批、空闲自动关闭。
+- **Hark 浏览器预览**: Hark 对话内展示浏览器截图/预览卡片，并新增只读 `browserPreview` RPC；不改动 Hark 消息路由、项目状态机和发送幂等逻辑。
+- **代理可用性/延迟测速**: 新增代理探测、出口 IP/地区解析与 Muse 设置页延迟测试。
+- **v0.12 精选能力**: WebContentsView detached LRU（90 秒、最多 1 个 warm view）、共享对话 HTML/Markdown 页面、管理员派发入口。
+
+### Changed
+- **Android 同源渲染器**: Android APK 继续打包同一份 Linux renderer bundle；本次重新构建并在 Android 模拟器完成安装、启动和空账号首页 smoke，Android 资源与协议未改动。
+- **Hark 房间保护**: Hark 账号允许 busy 状态参与房间轮次；Hark 已接受但暂无文字时显示“仍在执行”提示；Hark coordinator 在 UI、状态层和持久化 reconcile 三处禁止。
+
+### Fixed
+- **盲审阻断项**: 修复管理员 UI 缺失、WebView LRU attach 误销毁目标、敏感路径 symlink 绕过、Portal dispose 生命周期问题，并补充对应测试。
+
+### Validation
+- Desktop: 57 个测试文件 / 343 个用例通过；`npm run typecheck`、`npm run build` 通过。
+- Android: Gradle debug 构建通过（21 个 JVM 单元测试），x86_64 模拟器安装并启动无崩溃；arm64 release APK 重新构建。
+- 独立盲审：第二轮独立 reviewer 通过，无新增阻断项。
+
 ## [0.12.0] - 2026-11-25
 
 ### Added
