@@ -1,14 +1,8 @@
 # ISSUE-012: 集成测试与独立盲审
 
-**状态：** pending  
-**优先级：** P0  
+**状态：** done (代码/测试/盲审通过；真实 Hark/代理/UI smoke 待补)
+**优先级：** P0
 **依赖：** 全部
-
-# ISSUE-012: 集成测试与独立盲审
-
-**状态：** pending  
-**优先级：** P0  
-**依赖：** 全部功能 issue
 
 ## 目标
 
@@ -16,8 +10,8 @@
 
 ## 测试清单
 
-- [ ] `npm run typecheck` 通过。
-- [ ] `npm test` 全量通过（记录文件/用例数）。
+- [x] `npm run typecheck` 通过。
+- [x] `npm test` 全量通过：57 个测试文件 / 343 个用例。
 - [ ] Rooms：创建房间、成员增删、@mention、[FINAL]、[HANDOFF]、管理员派发、停止/重启。
 - [ ] Workspace：文件读/写/搜索、越界拒绝、MCP server、审批 allow/deny。
 - [ ] Hark：主对话/项目发送、回复、状态、完成通知、浏览器预览、Portal（如已做）。
@@ -28,15 +22,21 @@
 
 ## 独立盲审
 
-- [ ] 开一个**不继承实现上下文**的 reviewer subagent，只给 diff、issue 验收和测试结果，不给作者解释。
-- [ ] reviewer 必须检查：Hark 路由/项目状态、代理绑定、路径安全、rooms 队列、测试是否真的覆盖。
-- [ ] 对 reviewer 提出的阻断问题逐条修复并复测。
-- [ ] 输出盲审报告（结论、问题、证据、残余风险）。
+- [x] 开一个**不继承实现上下文**的 reviewer subagent，只给 diff、issue 验收和测试结果，不给作者解释。
+- [x] reviewer 必须检查：Hark 路由/项目状态、代理绑定、路径安全、rooms 队列、测试是否真的覆盖。
+- [x] 对 reviewer 提出的阻断问题逐条修复并复测（4 项阻断已修复）。
+- [x] 输出盲审报告（结论、问题、证据、残余风险）。
 
 ## 合并
 
 - [ ] 只有 012 通过后，才把 `feat/collaboration-space` 合入 `main`。
 - [ ] 保留 `pre-upstream-sync-20261126` tag 作为回滚点。
 
----
-_本 issue 文件由本次协作空间改造维护；完成时在文件底部追加“变更文件 / 测试命令 / 结果”。_
+## 执行记录
+
+- 变更范围：本分支两个提交 `c9c9a13`（功能）+ `12059ff`（盲审修复）；文档与脚本随提交维护。
+- `npm run typecheck`：PASS（node + web）。
+- `npm test`：PASS，57 文件 / 343 用例。
+- `npm run build`：PASS（electron-vite main/preload/renderer）。
+- 盲审：第一轮发现 4 个阻断（管理员 UI、WebView LRU attach、敏感路径 symlink、门户 dispose 生命周期），修复后第二轮独立盲审 **通过**。
+- 未闭环：真实 Hark 账号、真实代理、真实 Electron UI smoke（本机已有运行中的 BotArk 单实例，未强启第二实例）。

@@ -21,7 +21,7 @@
 - `npm run build`：通过（electron-vite main/preload/renderer）。
 - Hark room 保护：允许 Hark 账号 busy 状态进入房间轮次；Hark `sendMessage` 已接受但暂无文字时返回“仍在执行”通知，不把长任务误判为失败。
 - 真实 Electron UI smoke：当前机器有用户正在运行的 BotArk 单实例，无法安全启动第二实例；未做真实 Hark 登录/真实代理的端到端 smoke。
-- 独立盲审：首轮发现 4 个阻断项（管理员 UI、WebView LRU attach、敏感路径 symlink、门户 dispose 生命周期），已修复并补测试；待复审最终结论。
+- 独立盲审：首轮发现 4 个阻断项（管理员 UI、WebView LRU attach、敏感路径 symlink、门户 dispose 生命周期），已在 12059ff 修复并补测试；第二位独立盲审员复审 **通过**（57 文件 / 343 用例、typecheck/build 均通过）。
 
 ## 待办/风险
 

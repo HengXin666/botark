@@ -1,14 +1,8 @@
 # ISSUE-002: Rooms 调度、消息路由与成员队列
 
-**状态：** implemented (待盲审)  
-**优先级：** P0  
+**状态：** implemented (盲审通过)
+**优先级：** P0
 **依赖：** 001
-
-# ISSUE-002: Rooms 调度、消息路由与成员队列
-
-**状态：** pending  
-**优先级：** P0  
-**依赖：** ISSUE-001
 
 ## 目标
 
@@ -17,4 +11,4 @@
 ## 范围
 
 - 新增/完成 `src/renderer/src/rooms/roomStore.ts`：`useRooms`、`addRoom`、`submitBrief`、`stopRoom`、`addMemberToRoom`、`removeMember`、`moveMemberToRoom`。
-- 适配本地 `useBotStore`：使用本地 `sendMessage`、`cancelGeneration`；不要引入上游 `cancelPlatformTurn` 名称。
+- 适配本地 `useBotStore`：普通发送路径继续走 store；房间成员需要按成员 `sessionId`/`agentId` 发送，使用 adapter 层并封装为本地 `roomMemberCancel.ts` 的 `cancelRoomMemberTurn`，不复制上游 `cancelPlatformTurn` 名称。

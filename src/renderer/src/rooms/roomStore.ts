@@ -5,7 +5,7 @@ import type { ConnectionStatus, SendReceipt } from '@adapters/types'
 import { createId } from '@shared/id'
 import { getBridge } from '@/lib/bridge'
 import { useBotStore } from '@/store/botStore'
-import { cancelPlatformTurn } from '@/store/platformCancel'
+import { cancelRoomMemberTurn } from '@/store/roomMemberCancel'
 import { createSafeStorage } from '@/store/delivery'
 import type { Bot } from '@/types'
 import {
@@ -267,7 +267,7 @@ function reconcileRooms(targetRoomId?: string) {
     if (room.coordinatorId) {
       const owner = bots.find((b) => b.id === room.coordinatorId)
       const original = members.find((m) => m.botId === room.coordinatorId)
-      if (!owner || owner.activeAccountId !== original?.accountId || owner.selectedAgentId !== original?.agentId) {
+      if (!owner || owner.platformId === 'hark' || owner.activeAccountId !== original?.accountId || owner.selectedAgentId !== original?.agentId) {
         anyChanged = true
         return revokeCoordination(room)
       }
@@ -660,7 +660,7 @@ async function memberReply(room: CollabRoom, member: RoomMember, trigger: RoomMe
   const hermesSessionKey = member.platform === 'hermes'
     ? member.hermesSessionKey || `${room.id}-${member.botId}` : undefined
   const cancel = () => {
-    void cancelPlatformTurn({
+    void cancelRoomMemberTurn({
       ...bot,
       activeAccountId: member.accountId,
       activeSessionId: sessionId,

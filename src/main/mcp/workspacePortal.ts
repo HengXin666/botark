@@ -6,6 +6,7 @@ import { delimiter, join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import type { Readable } from 'node:stream'
 import { fileTools, workspaceFile } from './workspaceFiles'
+import { isSensitiveWorkspacePath } from './workspacePaths'
 import { onWorkspaceRootChanged, resolveWorkspaceRootFor } from './hub'
 import type {
   PortalCatalog,
@@ -62,48 +63,13 @@ let tunnelEnabled = true
 let idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS
 let rootChangeUnsubscribe: (() => void) | null = null
 
-const SAFE_ENV_TEMPLATE_RE = /^\.env\.(example|sample|template|dist)$/i
-const SENSITIVE_DIR_SEGMENTS = new Set(['.git', '.ssh', '.aws', '.gnupg', '.kube'])
-const SENSITIVE_EXACT_NAMES = new Set([
-  '.env',
-  '.npmrc',
-  '.pypirc',
-  '.netrc',
-  '.htpasswd',
-  '.dockercfg',
-  '.git-credentials',
-  'id_rsa',
-  'id_ed25519',
-  'id_ecdsa',
-  'id_dsa',
-  'credentials.json',
-  'secrets.json',
-  'secrets.yaml',
-  'secrets.yml'
-])
-const SENSITIVE_EXT_RE = /\.(pem|key|p12|pfx|jks|kdbx)$/i
-const SENSITIVE_NAME_RE = /^(id_(rsa|ed25519|ecdsa|dsa)\..+|service-account.*\.json|.*credentials.*\.json)$/i
-
 export function normalizePortalRelPath(raw: string): string {
   const normalized = raw.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '').replace(/\/+$/, '')
   return normalized || '.'
 }
 
 export function isSensitivePortalPath(rawPath: string): boolean {
-  const normalized = normalizePortalRelPath(rawPath)
-  if (normalized === '.') return false
-  const segments = normalized.split('/').filter(Boolean)
-  for (const seg of segments) {
-    const lower = seg.toLowerCase()
-    if (SENSITIVE_DIR_SEGMENTS.has(lower)) return true
-  }
-  const base = segments[segments.length - 1] ?? ''
-  const lowerBase = base.toLowerCase()
-  if (lowerBase.startsWith('.env.') && !SAFE_ENV_TEMPLATE_RE.test(lowerBase)) return true
-  if (SENSITIVE_EXACT_NAMES.has(lowerBase)) return true
-  if (SENSITIVE_EXT_RE.test(lowerBase)) return true
-  if (SENSITIVE_NAME_RE.test(lowerBase)) return true
-  return false
+  return isSensitiveWorkspacePath(rawPath)
 }
 
 function normalizeScope(scope: string | undefined): string {

@@ -1,14 +1,8 @@
 # ISSUE-008: v0.12 WebContentsView LRU 性能件
 
-**状态：** implemented (待盲审)  
-**优先级：** P1  
+**状态：** done (盲审通过)
+**优先级：** P1
 **依赖：** —
-
-# ISSUE-008: v0.12 WebContentsView LRU 性能件
-
-**状态：** pending  
-**优先级：** P1  
-**依赖：** 无
 
 ## 目标
 

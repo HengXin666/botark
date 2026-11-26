@@ -1,14 +1,8 @@
 # ISSUE-004: Workspace MCP 核心
 
-**状态：** implemented (待盲审)  
-**优先级：** P1  
+**状态：** implemented (盲审通过)
+**优先级：** P1
 **依赖：** —
-
-# ISSUE-004: Workspace MCP 核心
-
-**状态：** pending  
-**优先级：** P1  
-**依赖：** 无（但 UI 接 005）
 
 ## 目标
 

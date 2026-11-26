@@ -1,11 +1,11 @@
 import type { Bot } from '@/types'
 
 /**
- * Cancel a platform turn using the bot snapshot supplied by the caller.
+ * Cancel a room member turn using the bot snapshot supplied by the caller.
  * Rooms keep per-member session ids that differ from the bot's active session,
  * so this must not go through a botId-only store helper.
  */
-export async function cancelPlatformTurn(bot: Bot): Promise<void> {
+export async function cancelRoomMemberTurn(bot: Bot): Promise<void> {
   const bridge = typeof window === 'undefined' ? undefined : window.electron
   if (bot.platformId === 'meta-muse' && bridge?.muse?.cancelChat) {
     await bridge.muse.cancelChat(bot.activeAccountId, bot.activeSessionId)
