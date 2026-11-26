@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { findHarkAccountId, harkPoolAccountId, harkPoolGroupName, harkTierForLimit, parseHarkPoolAccounts } from './harkPool'
 
 describe('harkPool', () => {
-  it('classifies 16M as Pro2 and everything below as Pro1', () => {
+  it('classifies 16M as Pro2, 8M as Pro and 75k as unknown', () => {
     expect(harkTierForLimit(16_000_000)).toBe('pro2')
     expect(harkTierForLimit(8_000_000)).toBe('pro')
-    expect(harkTierForLimit(75_000)).toBe('pro')
+    expect(harkTierForLimit(75_000)).toBe('unknown')
     expect(harkTierForLimit(undefined)).toBe('unknown')
     expect(harkPoolGroupName('pro2')).toBe('Pro2')
     expect(harkPoolGroupName('pro')).toBe('Pro1')

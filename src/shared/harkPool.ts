@@ -26,8 +26,10 @@ function rowsOf(doc: unknown): Record<string, unknown>[] {
 
 /** Classify a Hark account by its measured daily token allowance. */
 export function harkTierForLimit(limit: number | undefined): HarkPoolTier {
-  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0) return 'unknown'
-  return limit >= 16_000_000 ? 'pro2' : 'pro'
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return 'unknown'
+  if (limit >= 16_000_000) return 'pro2'
+  if (limit >= 8_000_000) return 'pro'
+  return 'unknown'
 }
 
 /** The two BotArk sections where imported Hark accounts live. */

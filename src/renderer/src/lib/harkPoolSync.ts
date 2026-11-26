@@ -1,6 +1,6 @@
 import { getBridge } from '@/lib/bridge'
 import { useBotStore } from '@/store/botStore'
-import { findHarkAccountId, harkPoolAccountId, harkPoolGroupName, parseHarkPoolAccounts } from '@shared/harkPool'
+import { findHarkAccountId, harkPoolAccountId, harkPoolGroupName, harkTierForLimit, parseHarkPoolAccounts } from '@shared/harkPool'
 
 const GATEWAY = 'http://localhost:8920'
 
@@ -27,6 +27,29 @@ function uniqueName(base: string, taken: string[]): string {
   }
 }
 
+function dailyLimitOf(summary: unknown): number | undefined {
+  const tokens = (summary as { meters?: { harkTokens?: { dailyLimit?: unknown } } })?.meters?.harkTokens
+  return typeof tokens?.dailyLimit === 'number' ? tokens.dailyLimit : undefined
+}
+
+async function liveDailyLimit(accountId: string): Promise<number | undefined> {
+  const hark = getBridge()?.hark
+  if (!hark?.rpc) return undefined
+  const result = await hark.rpc({ accountId, op: 'call', method: 'GET', path: '/billing/summary' })
+  return result.ok ? dailyLimitOf(result.data) : undefined
+}
+
+async function eachLimit<T>(items: T[], limit: number, run: (item: T) => Promise<void>): Promise<void> {
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const item = items[cursor++]
+      if (item !== undefined) await run(item)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
 /** Pull the local Hark pool, import new sessions and place every account into Pro2 or Pro1. */
 export async function syncHarkPool(onProgress?: (text: string) => void): Promise<HarkPoolSyncResult> {
   const hark = getBridge()?.hark
@@ -44,6 +67,14 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
 
   const pro2 = groupIdFor('Pro2')
   const pro1 = groupIdFor('Pro1')
+  const liveLimits = new Map<string, number>()
+  const existingHark = Object.values(useBotStore.getState().accounts).filter(
+    (item) => item.platformId === 'hark'
+  )
+  await eachLimit(existingHark, 6, async (item) => {
+    const limit = await liveDailyLimit(item.id)
+    if (limit !== undefined) liveLimits.set(item.id, limit)
+  })
   let added = 0
   let moved = 0
   let existing = 0
@@ -52,11 +83,13 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
   for (let index = 0; index < parsed.accounts.length; index += 1) {
     const account = parsed.accounts[index]!
     onProgress?.(`正在同步 ${index + 1}/${parsed.accounts.length}: ${account.email}`)
-    const groupId = harkPoolGroupName(account.tier) === 'Pro2' ? pro2 : pro1
     const known = findHarkAccountId(useBotStore.getState().accounts, account.email)
+    const liveLimit = known ? liveLimits.get(known) : undefined
+    const tier = liveLimit !== undefined ? harkTierForLimit(liveLimit) : account.tier
+    const groupId = harkPoolGroupName(tier) === 'Pro2' ? pro2 : pro1
     if (known) {
       const bot = useBotStore.getState().bots.find((item) => item.accountIds.includes(known))
-      if (bot && account.tier !== 'unknown' && bot.groupId !== groupId) {
+      if (bot && tier !== 'unknown' && bot.groupId !== groupId) {
         useBotStore.getState().moveBotToGroup(bot.id, groupId)
         moved += 1
       } else {
