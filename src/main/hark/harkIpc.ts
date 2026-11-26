@@ -40,12 +40,13 @@ import { loadAccountProxyUrl } from '../muse/accountProxy'
 import { guessMediaMimeFromName } from '../mediaMime'
 import { probeHarkSession } from './harkSession'
 import {
-  getHarkStatuses,
   onHarkStatusEvent,
   setHarkNotificationClickHandler,
+  touchHarkStatuses,
   unwatchHarkStatuses,
   watchHarkStatuses
 } from './harkStatusMonitor'
+import { unwatchHarkActivity, watchHarkActivity } from './harkActivityMonitor'
 
 function mapHarkTools(msg: HarkChatMessage): MuseToolCallView[] | undefined {
   if (!msg.toolCalls || msg.toolCalls.length === 0) return undefined
@@ -115,10 +116,20 @@ async function statusFor(accountId: string): Promise<HarkAuthStatus> {
   const hasProxy = Boolean(await loadAccountProxyUrl(accountId).catch(() => true))
   const probe = await probeHarkSession(accountId)
   if ('signedIn' in probe) {
-    unwatchHarkStatuses(accountId)
+    // Only an explicit signed-out answer stops watching. A failed probe
+    // (dead proxy / transient network) must keep the background watcher
+    // alive; otherwise the next connect attempt silently removes monitoring
+    // from accounts the user has already opened.
+    if (!probe.unavailable) {
+      unwatchHarkStatuses(accountId)
+      unwatchHarkActivity(accountId)
+    }
     return { accountId, signedIn: false, hasProxy }
   }
-  watchHarkStatuses(accountId)
+  // Keep every signed-in account observable at the background rate. The
+  // status monitor promotes up to 10 opened/working accounts to its 5s live
+  // pool, so an account outside the current window is never unmonitored.
+  watchHarkStatuses(accountId, { intervalMs: 30_000, refreshTitles: false })
   return {
     accountId,
     signedIn: true,
@@ -172,14 +183,16 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
             asks: snap?.asks ?? [],
             artifacts: snap?.artifacts ?? [],
             activeActivity: snap?.activeActivity ?? null,
-            narration: snap?.narration ?? null
+            narration: snap?.narration ?? null,
+            working: snap?.working ?? false
           }
         }
       }
       case 'conversationStatus': {
-        // The monitor already polls every watched account; reuse its snapshot.
-        const cached = getHarkStatuses(req.accountId)
-        if (cached) return { ok: true, data: { statuses: cached } }
+        // An explicit status query comes from a visible project page/refresh;
+        // promote the account and fetch fresh so the 5s UI poll never reads a
+        // stale 30s background snapshot.
+        touchHarkStatuses(req.accountId)
         return { ok: true, data: await getConversationStatuses(req.accountId) }
       }
       case 'conversationMessages': {
@@ -202,7 +215,8 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
             asks: snap.asks,
             artifacts: snap.artifacts,
             activeActivity: snap.activeActivity,
-            narration: snap.narration
+            narration: snap.narration,
+            working: snap.working
           }
         }
       }
@@ -233,15 +247,44 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
         cancelHarkWatchForConversation(req.accountId, req.conversationId)
         return { ok: true, data: { cancelled: true } }
       case 'watchStatus':
-        watchHarkStatuses(req.accountId)
+        watchHarkStatuses(req.accountId, {
+          intervalMs: typeof req.intervalMs === 'number' ? req.intervalMs : undefined,
+          refreshTitles: req.refreshTitles !== false,
+          allowDowngrade: req.allowDowngrade === true,
+          hot: req.hot === true
+        })
         return { ok: true, data: { watched: true } }
       case 'unwatchStatus':
         unwatchHarkStatuses(req.accountId)
+        unwatchHarkActivity(req.accountId)
         return { ok: true, data: { watched: false } }
+      case 'watchConversation': {
+        if (typeof req.conversationId !== 'string' || !req.conversationId) {
+          return { ok: false, status: 400, message: 'conversationId required' }
+        }
+        touchHarkStatuses(req.accountId)
+        watchHarkActivity(req.accountId, req.conversationId, (update) => {
+          broadcast({
+            type: 'activity',
+            accountId: req.accountId,
+            conversationId: update.conversationId,
+            activityCode: update.busy ? 'working' : 'idle',
+            activityText: update.text ?? undefined,
+            busy: update.busy
+          })
+        })
+        return { ok: true, data: { watching: true, conversationId: req.conversationId } }
+      }
+      case 'unwatchConversation':
+        unwatchHarkActivity(req.accountId, req.conversationId)
+        return { ok: true, data: { watching: false } }
       case 'sendMessage': {
         if (typeof req.conversationId !== 'string' || !req.conversationId) {
           return { ok: false, status: 400, message: 'conversationId required' }
         }
+        // User input can start a task immediately; put this account in the live
+        // pool before the first status poll so the working state is never missed.
+        touchHarkStatuses(req.accountId)
         const hasAttachments = Array.isArray(req.attachments) && req.attachments.length > 0
         if ((typeof req.text !== 'string' || !req.text.trim()) && !hasAttachments) {
           return { ok: false, status: 400, message: 'text or attachments required' }
@@ -287,18 +330,18 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
             const media = mapHarkMedia(msg)
             const richWidgets = mapHarkRichWidgets(msg)
             const activePhrase =
+              syncState.activityText() ||
               msg.narration?.trim() ||
               msg.thought?.trim() ||
-              syncState.narration?.trim() ||
-              syncState.activeActivity?.trim() ||
               ''
 
             if (!done && activePhrase) {
               broadcast({
                 type: 'activity',
                 accountId: req.accountId,
-                activityCode: 'thinking',
-                activityText: activePhrase.slice(0, 120),
+                conversationId: req.conversationId,
+                activityCode: 'working',
+                activityText: activePhrase.slice(0, 160),
                 busy: true
               })
             }
@@ -453,6 +496,7 @@ export function registerHarkIpc(): void {
       }
     } else {
       unwatchHarkStatuses(event.accountId)
+      unwatchHarkActivity(event.accountId)
       broadcast({
         type: 'login',
         accountId: event.accountId,
@@ -515,6 +559,7 @@ export function registerHarkIpc(): void {
   ipcMain.handle(HARK_CHANNELS.clearAuth, async (_event, accountId: unknown) => {
     if (typeof accountId !== 'string' || !accountId.trim()) throw new TypeError('Invalid accountId')
     unwatchHarkStatuses(accountId.trim())
+    unwatchHarkActivity(accountId.trim())
     await clearHarkAccount(accountId.trim())
     broadcast({
       type: 'login',

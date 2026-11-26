@@ -1,8 +1,11 @@
 /**
- * Main-process Hark status monitor: polls every watched account every 5s,
- * emits snapshot events, and raises Linux desktop notifications when a
- * conversation leaves `working`. Imports only Electron and harkClient so the
- * IPC layer can subscribe without an import cycle.
+ * Main-process Hark status monitor.
+ *
+ * Every signed-in account keeps a background watcher (30s). Up to
+ * HARK_LIVE_WATCH_LIMIT accounts form a live pool polled every 5s. Accounts
+ * enter the live pool when the user opens them or when any of their
+ * conversations is `working`. A working account stays pinned in the live pool
+ * until its task finishes; only then may it be replaced by the next account.
  */
 
 import { BrowserWindow, Notification } from 'electron'
@@ -26,6 +29,16 @@ interface ConversationInfo {
 
 interface AccountWatch {
   timer?: ReturnType<typeof setInterval>
+  intervalMs: number
+  /** In the real-time pool (5s) rather than the background pool (30s). */
+  hot: boolean
+  /** Last time the user opened/touched the account or its work started. */
+  lastTouchedAt: number
+  /** Last successful or attempted status poll, used to avoid duplicate polls. */
+  lastPolledAt: number
+  /** Whether any conversation is currently `working`. */
+  working: boolean
+  refreshTitles: boolean
   inFlight: boolean
   stopped: boolean
   statuses?: Record<string, string>
@@ -34,7 +47,22 @@ interface AccountWatch {
   titleRefresh?: Promise<void>
 }
 
-const POLL_INTERVAL_MS = 5_000
+export interface HarkStatusWatchOptions {
+  /** Poll interval; live accounts use 5s, background accounts 30s. */
+  intervalMs?: number
+  /** Skip the initial conversation-title refresh for background watchers. */
+  refreshTitles?: boolean
+  /** Allow a live watcher to return to the background rate. */
+  allowDowngrade?: boolean
+  /** Force live-pool membership even when the interval is the background rate. */
+  hot?: boolean
+}
+
+/** At least this many accounts can be watched in real time at once. */
+export const HARK_LIVE_WATCH_LIMIT = 10
+
+const LIVE_POLL_INTERVAL_MS = 5_000
+const BACKGROUND_POLL_INTERVAL_MS = 30_000
 const TITLE_CACHE_TTL_MS = 60_000
 const watches = new Map<string, AccountWatch>()
 const listeners = new Set<StatusListener>()
@@ -151,10 +179,64 @@ function showCompletedNotification(accountId: string, conversationId: string, ti
   }
 }
 
+function setWatchInterval(accountId: string, watch: AccountWatch, intervalMs: number): void {
+  if (watch.timer) clearInterval(watch.timer)
+  watch.intervalMs = intervalMs
+  watch.timer = setInterval(() => {
+    void pollAccount(accountId)
+  }, intervalMs)
+  watch.timer.unref?.()
+}
+
+/** Move an account into the live pool and refresh it immediately when stale. */
+function promoteWatch(accountId: string, touch = true): void {
+  const watch = watches.get(accountId)
+  if (!watch || watch.stopped) return
+  if (touch) watch.lastTouchedAt = Date.now()
+  watch.hot = true
+  if (watch.intervalMs !== LIVE_POLL_INTERVAL_MS) {
+    setWatchInterval(accountId, watch, LIVE_POLL_INTERVAL_MS)
+  }
+  if (Date.now() - watch.lastPolledAt >= LIVE_POLL_INTERVAL_MS) {
+    void pollAccount(accountId)
+  }
+  enforceLiveLimit(accountId)
+}
+
+/** Return an idle account to the background pool without stopping its watcher. */
+function demoteWatch(accountId: string): void {
+  const watch = watches.get(accountId)
+  if (!watch || watch.stopped || watch.working) return
+  watch.hot = false
+  if (watch.intervalMs !== BACKGROUND_POLL_INTERVAL_MS) {
+    setWatchInterval(accountId, watch, BACKGROUND_POLL_INTERVAL_MS)
+  }
+}
+
+/**
+ * Keep at most HARK_LIVE_WATCH_LIMIT live watchers. Working accounts are never
+ * evicted: if every live account is working the pool temporarily grows rather
+ * than losing a running task. `keepId` is the account that just requested
+ * promotion, so it is not immediately evicted by its own insertion.
+ */
+function enforceLiveLimit(keepId?: string): void {
+  let live = [...watches.entries()].filter(([, watch]) => watch.hot && !watch.stopped)
+  if (live.length <= HARK_LIVE_WATCH_LIMIT) return
+  while (live.length > HARK_LIVE_WATCH_LIMIT) {
+    const candidate = live
+      .filter(([id, watch]) => id !== keepId && !watch.working)
+      .sort((left, right) => left[1].lastTouchedAt - right[1].lastTouchedAt)[0]
+    if (!candidate) break
+    demoteWatch(candidate[0])
+    live = live.filter(([id]) => id !== candidate[0])
+  }
+}
+
 async function pollAccount(accountId: string): Promise<void> {
   const watch = watches.get(accountId)
   if (!watch || watch.stopped || watch.inFlight) return
   watch.inFlight = true
+  watch.lastPolledAt = Date.now()
   try {
     const next = readStatuses(await getConversationStatuses(accountId))
     if (!next) {
@@ -163,6 +245,13 @@ async function pollAccount(accountId: string): Promise<void> {
     }
     if (watch.stopped || watches.get(accountId) !== watch) return
     const previous = watch.statuses
+    const wasWorking = watch.working
+    watch.working = Object.values(next).some((status) => status === 'working')
+    if (watch.working) {
+      // A task started outside the app or while this account was in the
+      // background pool must be pulled into the live pool immediately.
+      if (!watch.hot) promoteWatch(accountId)
+    }
     if (!previous) {
       // Baseline: remember current states; never notify for already-finished ones.
       watch.statuses = next
@@ -194,6 +283,10 @@ async function pollAccount(accountId: string): Promise<void> {
     }
     emitStatusEvent({ type: 'conversationStatus', accountId, statuses: next, previous, completed })
     for (const item of completed) showCompletedNotification(accountId, item.conversationId, item.title)
+    if (wasWorking && !watch.working) {
+      // The task is done; the account may now yield its live slot to a newer one.
+      enforceLiveLimit()
+    }
   } catch (error) {
     console.warn('[hark] status', accountId, 'poll failed:', errorMessage(error))
   } finally {
@@ -214,23 +307,62 @@ export function setHarkNotificationClickHandler(handler: NotificationClickHandle
   notificationClickHandler = handler
 }
 
-/** Start watching an account. Idempotent; polls once immediately, then every 5s. */
-export function watchHarkStatuses(accountId: string): void {
+/** Start watching an account. Idempotent; a smaller interval upgrades it. */
+export function watchHarkStatuses(
+  accountId: string,
+  options: HarkStatusWatchOptions = {}
+): void {
   const id = accountId.trim()
-  if (!id || watches.has(id)) return
+  if (!id) return
+  const intervalMs = Math.max(1_000, options.intervalMs ?? LIVE_POLL_INTERVAL_MS)
+  const wantsLive = options.hot === true || intervalMs <= LIVE_POLL_INTERVAL_MS
+  const refreshTitlesEnabled = options.refreshTitles !== false
+  const existing = watches.get(id)
+  if (existing) {
+    if (wantsLive) promoteWatch(id)
+    else if (options.allowDowngrade) demoteWatch(id)
+    if (refreshTitlesEnabled && !existing.refreshTitles) {
+      existing.refreshTitles = true
+      void refreshTitles(id)
+    }
+    return
+  }
   const watch: AccountWatch = {
+    intervalMs: wantsLive ? LIVE_POLL_INTERVAL_MS : BACKGROUND_POLL_INTERVAL_MS,
+    hot: wantsLive,
+    lastTouchedAt: wantsLive ? Date.now() : 0,
+    lastPolledAt: 0,
+    working: false,
+    refreshTitles: refreshTitlesEnabled,
     inFlight: false,
     stopped: false,
     titleCache: new Map(),
     titlesUpdatedAt: 0
   }
   watches.set(id, watch)
-  watch.timer = setInterval(() => {
+  setWatchInterval(id, watch, watch.intervalMs)
+  if (wantsLive) {
     void pollAccount(id)
-  }, POLL_INTERVAL_MS)
-  watch.timer.unref?.()
-  void pollAccount(id)
-  void refreshTitles(id)
+  } else {
+    // Stagger background start-up probes so dozens of accounts do not hit
+    // Hark's status endpoint simultaneously.
+    setTimeout(() => {
+      if (!watch.stopped && watches.get(id) === watch) void pollAccount(id)
+    }, Math.floor(Math.random() * Math.min(5_000, watch.intervalMs)))
+  }
+  if (watch.refreshTitles) void refreshTitles(id)
+  if (wantsLive) enforceLiveLimit(id)
+}
+
+/** Put an account into the real-time pool, creating its watcher if needed. */
+export function touchHarkStatuses(accountId: string): void {
+  const id = accountId.trim()
+  if (!id) return
+  watchHarkStatuses(id, {
+    intervalMs: LIVE_POLL_INTERVAL_MS,
+    hot: true,
+    refreshTitles: true
+  })
 }
 
 /** Stop watching an account and release its timer/state. */
@@ -247,6 +379,31 @@ export function unwatchHarkStatuses(accountId: string): void {
 export function getHarkStatuses(accountId: string): Record<string, string> | undefined {
   const statuses = watches.get(accountId.trim())?.statuses
   return statuses ? { ...statuses } : undefined
+}
+
+/** Snapshot used by tests and diagnostics to prove the live-pool policy. */
+export interface HarkWatchDiagnostic {
+  accountId: string
+  intervalMs: number
+  hot: boolean
+  working: boolean
+  lastPolledAt: number
+  lastTouchedAt: number
+  statuses?: Record<string, string>
+}
+
+export function getHarkWatchDiagnostics(): HarkWatchDiagnostic[] {
+  return [...watches.entries()]
+    .sort((left, right) => Number(right[1].hot) - Number(left[1].hot) || left[1].lastTouchedAt - right[1].lastTouchedAt)
+    .map(([accountId, watch]) => ({
+      accountId,
+      intervalMs: watch.intervalMs,
+      hot: watch.hot,
+      working: watch.working,
+      lastPolledAt: watch.lastPolledAt,
+      lastTouchedAt: watch.lastTouchedAt,
+      statuses: watch.statuses ? { ...watch.statuses } : undefined
+    }))
 }
 
 /** Stop every watcher (app shutdown). */

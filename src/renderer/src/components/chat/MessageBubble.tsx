@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Check, Clock3, Copy, CornerDownRight, Download, ExternalLink, FileText, Film, Image as ImageIcon, KeyRound, Loader2, Maximize2, Music, RotateCw, Wrench, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatClock } from '@/lib/format'
@@ -193,6 +193,18 @@ function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(new ArrayBuffer(bin.length))
   for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
   return bytes
+}
+
+/** Keep large base64 images out of the DOM: an object URL points at a Blob instead. */
+function dataUrlToObjectUrl(dataUrl: string): string | null {
+  const comma = dataUrl.indexOf(',')
+  if (comma < 0 || !dataUrl.slice(5, comma).includes(';base64')) return null
+  try {
+    const mime = dataUrl.slice(5, comma).split(';')[0] || 'application/octet-stream'
+    return URL.createObjectURL(new Blob([base64ToBytes(dataUrl.slice(comma + 1))], { type: mime }))
+  } catch {
+    return null
+  }
 }
 
 function saveDataOrUrlToDisk(src: string, filename: string, mimeType?: string): void {
@@ -488,25 +500,41 @@ function WorkspaceImage({
   part: ChatMediaPart
   accountId?: string
 }) {
-  const initialDirectSrc =
-    /^data:image\//i.test(part.path) || (isHttp(part.path) && !needsAuthProxyHttpUrl(part.path))
-      ? part.path
-      : null
+  const initialDirectSrc = isHttp(part.path) && !needsAuthProxyHttpUrl(part.path) ? part.path : null
   const [src, setSrc] = useState<string | null>(initialDirectSrc)
   const [failed, setFailed] = useState(false)
   const [triedProxy, setTriedProxy] = useState(false)
   const [retryNonce, setRetryNonce] = useState(0)
   const [lightboxOpen, setLightboxOpen] = useState(false)
+  const objectUrlRef = useRef<string | null>(null)
 
   useEffect(() => {
-    const nextDirect =
-      /^data:image\//i.test(part.path) || (isHttp(part.path) && !needsAuthProxyHttpUrl(part.path))
-        ? part.path
-        : null
-    setSrc(nextDirect)
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
     setFailed(false)
     setTriedProxy(false)
+    if (/^data:image\//i.test(part.path)) {
+      const url = dataUrlToObjectUrl(part.path)
+      if (url) {
+        objectUrlRef.current = url
+        setSrc(url)
+      } else {
+        setSrc(null)
+        setFailed(true)
+      }
+      return
+    }
+    setSrc(isHttp(part.path) && !needsAuthProxyHttpUrl(part.path) ? part.path : null)
   }, [part.path])
+
+  useEffect(() => () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     if (src || failed || !accountId) return
@@ -530,7 +558,10 @@ function WorkspaceImage({
           setFailed(true)
           return
         }
-        setSrc(`data:${mime};base64,${fetched.dataBase64}`)
+        const objectUrl = URL.createObjectURL(new Blob([base64ToBytes(fetched.dataBase64)], { type: mime }))
+        if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = objectUrl
+        setSrc(objectUrl)
       } catch {
         if (!cancelled) setFailed(true)
       }
@@ -540,7 +571,7 @@ function WorkspaceImage({
     }
   }, [accountId, part, src, failed, retryNonce])
 
-  const filename = part.name || (!isHttp(part.path) ? part.path.split('/').pop() : undefined) || 'image.png'
+  const filename = part.name || (/^data:/i.test(part.path) ? undefined : !isHttp(part.path) ? part.path.split('/').pop() : undefined) || 'image.png'
 
   if (src) {
     return (
@@ -690,7 +721,7 @@ function WorkspaceAV({
 
   const filename =
     part.name ||
-    (!isHttp(part.path) ? part.path.split('/').pop() : undefined) ||
+    (/^data:/i.test(part.path) ? undefined : !isHttp(part.path) ? part.path.split('/').pop() : undefined) ||
     (kind === 'audio' ? 'audio.mp3' : 'video.mp4')
 
   const handleMediaError = () => {
@@ -1678,7 +1709,7 @@ function UserAttachmentItem({
   const isAudio = file.mimeType.startsWith('audio/') && Boolean(file.dataBase64)
 
   useEffect(() => {
-    if ((!isVideo && !isAudio) || !file.dataBase64) {
+    if (!file.dataBase64) {
       setAvUrl(null)
       return
     }
@@ -1688,10 +1719,9 @@ function UserAttachmentItem({
     return () => {
       URL.revokeObjectURL(url)
     }
-  }, [file.dataBase64, file.mimeType, isVideo, isAudio])
+  }, [file.dataBase64, file.mimeType])
 
-  if (isImage && file.dataBase64) {
-    const dataSrc = `data:${file.mimeType};base64,${file.dataBase64}`
+  if (isImage && avUrl) {
     return (
       <>
         <li className="overflow-hidden rounded-xl border border-line bg-surface shadow-soft">
@@ -1701,12 +1731,12 @@ function UserAttachmentItem({
             className="block cursor-zoom-in"
             title={file.name}
           >
-            <img src={dataSrc} alt={file.name} className="max-h-56 max-w-64 object-contain" />
+            <img src={avUrl} alt={file.name} className="max-h-56 max-w-64 object-contain" />
           </button>
         </li>
         {lightboxOpen && (
           <ImageLightbox
-            src={dataSrc}
+            src={avUrl}
             alt={file.name}
             filename={file.name}
             onClose={() => setLightboxOpen(false)}

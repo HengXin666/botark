@@ -153,7 +153,10 @@ export function GrokBotMark({
     return 'idle'
   }, [grokState, isWorking, status])
 
-  const playing = !isPaused && status !== 'offline'
+  // The 3D motion engine is only legible at hero/editor sizes. At 24–36px
+  // (sidebar rows, message avatars) it is visually indistinguishable, yet each
+  // instance runs its own 60fps SVG loop — dozens of loops can eat a full core.
+  const playing = !isPaused && status !== 'offline' && sizePx >= 48
 
   // Instantiate the official Grok Bot Motion Engine once per component instance
   if (!engineRef.current) {

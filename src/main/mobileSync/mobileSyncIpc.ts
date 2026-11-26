@@ -121,6 +121,9 @@ async function collectMobileProxyNodes(): Promise<MobileProxyNode[]> {
     for (const item of available) {
       const secret = await getProxyPoolItemSecret(item.id)
       if (!secret) continue
+      // The phone protocol has no TLS-to-proxy mode yet; omit instead of mislabeling
+      // an https endpoint as socks5/http (which would silently fail on the phone).
+      if (secret.mode === 'https') continue
       if (isLoopbackHost(secret.host)) {
         relays.push({ item, secret })
       } else {

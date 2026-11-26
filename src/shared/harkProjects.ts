@@ -39,7 +39,8 @@ export function parseHarkConversations(data: unknown): HarkProjectSummary[] {
       activityAt:
         asString(raw['activityAt']) ||
         asString(raw['updatedAt']) ||
-        asString(raw['createdAt'])
+        asString(raw['createdAt']),
+      status: asString(raw['status']) || undefined
     }]
   })
 }
@@ -57,6 +58,49 @@ export function parseHarkStatuses(data: unknown): Record<string, string> {
 
 export function harkProjectTitle(project: Pick<HarkProjectSummary, 'title' | 'kind'>): string {
   return project.title?.trim() || (project.kind === 'main' ? '主对话' : '未命名项目')
+}
+
+/** Active projects in the same recency order used by the Linux project page. */
+export function harkProjectsByRecency(projects: HarkProjectSummary[]): HarkProjectSummary[] {
+  return [...projects]
+    .filter((project) => project.kind === 'project' && project.archivedAt === null)
+    .sort((left, right) => harkActivityTime(right) - harkActivityTime(left))
+}
+
+/**
+ * Effective status for one project. The live status endpoint wins; the status
+ * cached on the project (native snapshot / desktop sync) is the fallback so a
+ * transient status-poll failure does not make a working project look idle.
+ */
+export function harkProjectStatus(
+  project: Pick<HarkProjectSummary, 'id' | 'status'>,
+  statuses: Record<string, string>
+): string {
+  return (statuses[project.id] || project.status || '').toLowerCase()
+}
+
+/** Projects currently working, preserving the caller's recency order. */
+export function harkWorkingProjects(
+  projects: HarkProjectSummary[],
+  statuses: Record<string, string>
+): HarkProjectSummary[] {
+  return projects.filter((project) => harkProjectStatus(project, statuses) === 'working')
+}
+
+/**
+ * Linux resume rule: only auto-open when the user opted in, no session is
+ * already active, and exactly one project is working. Several working projects
+ * stay on the project list so the user can choose.
+ */
+export function shouldAutoOpenHarkProject(options: {
+  activeSessionId?: string | null
+  resumeLast: boolean
+  projects: HarkProjectSummary[]
+  statuses: Record<string, string>
+}): HarkProjectSummary | null {
+  if (!options.resumeLast || options.activeSessionId) return null
+  const working = harkWorkingProjects(options.projects, options.statuses)
+  return working.length === 1 ? working[0]! : null
 }
 
 export function harkActivityTime(project: Pick<HarkProjectSummary, 'activityAt'>): number {

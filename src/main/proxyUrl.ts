@@ -52,7 +52,7 @@ export function undiciProxyUrl(normalizedUrl: string): string {
 export function requireValidProxyUrl(raw: string | undefined | null): string | undefined {
   if (!(raw ?? '').trim()) return undefined
   const url = normalizeProxyUrl(raw)
-  if (!url) throw new Error('代理地址无效：需要 http:// 或 socks5:// 加 主机:端口')
+  if (!url) throw new Error('代理地址无效：需要 http://、https:// 或 socks5:// 加 主机:端口')
   return url
 }
 

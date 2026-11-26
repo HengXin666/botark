@@ -163,6 +163,21 @@ Session 名大概率同前缀（如 `__Secure-hark.session_token`）或 better-a
 
 **登录后第一优先补强**：Chrome netlog / CDP 录一次「发 hi → 看回复」，确认 send 响应字段与是否有 SSE/WS。
 
+### 3.3.1 工作状态 / 实时进度（2026-11-25 live 验证）
+
+Hark 的工作状态不在 `/conversations/status`（那里只有 `working/unread`），而是在会话同步流里：
+
+- `GET /api/sync/conversation?conversationId=…&v=2&manager=…&mode=in_tab&ids=1&beat=5&dial=initial`
+  返回 `text/event-stream`；初始 `snapshot.data.narration` 是对象，不是字符串：
+  `{ line: "正在运行代码检查和测试。", live: true, visible: true, working: true, since, messageId }`。
+- 增量 `patches` 里常见：
+  - `{ op: "narration_update", value: { line: "正在读取界面组件代码。", visible: true, working: true, … } }`
+  - `{ op: "message_update", fields: { narration: { line: "Using my computer", lineKey: "narration.shell.command" } }, id: … }`
+  - `{ op: "active_work_set", value: [{ dispatchId, domain: "shell", state: "working" }] }`
+  - `{ op: "request_update", value: { state: "completed" } }`（turn 结束的权威信号）
+- 兼容点：`visible: false` 不渲染；`lineArgs` 需拼到 `line` 后区分同名动作；`activeActivity` 在真实快照里可能是数组（BotArk 现在对三种形态都做归一化）。
+- SSE 不可用时可回退 `GET /api/sync/poll`（同 `conversationId`/cursor/floor），帧格式一致。
+
 ### 3.4 消息/会话 schema 碎片（Zod，未 live）
 
 `DDiZ7N3r.js` / realtime observability：

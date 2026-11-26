@@ -11,6 +11,9 @@ export default defineConfig({
   resolve: { alias: rendererAlias },
   plugins: rendererPlugins(),
   server: { port: 5174, strictPort: false },
+  // Relative asset URLs so the same bundle can be served from the Android
+  // WebViewAssetLoader origin (https://appassets.androidplatform.net/assets/web).
+  base: './',
   build: {
     outDir: resolve('dist/web'),
     emptyOutDir: true

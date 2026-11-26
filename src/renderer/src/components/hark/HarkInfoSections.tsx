@@ -42,9 +42,8 @@ function str(v: unknown): string {
 }
 
 function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
+  // Quota is requested as an exact token count; never round it to K/M here.
+  return Math.max(0, Math.round(n)).toLocaleString('zh-CN')
 }
 
 /**
@@ -111,11 +110,13 @@ export function HarkBillingSection({ accountId }: { accountId: string }) {
 
             {dailyLimit > 0 && (
               <div>
-                <div className="flex justify-between text-[11.5px]">
+                <div className="flex items-baseline justify-between gap-2 text-[11.5px]">
                   <span className="text-ink-secondary">今日额度</span>
-                  <span className="tabular-nums text-ink">
-                    {fmtTokens(dailyUsed)} / {fmtTokens(dailyLimit)} ({dailyPct}%)
-                  </span>
+                  <span className="tabular-nums text-ink">{fmtTokens(dailyUsed)} / {fmtTokens(dailyLimit)} token</span>
+                </div>
+                <div className="mt-0.5 flex items-baseline justify-between gap-2 text-[10.5px] text-ink-muted">
+                  <span>已用 {fmtTokens(dailyUsed)}</span>
+                  <span>剩余 {fmtTokens(Math.max(0, dailyLimit - dailyUsed))}</span>
                 </div>
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-hover">
                   <div className="h-full rounded-full bg-ink/75" style={{ width: `${dailyPct}%` }} />
@@ -125,11 +126,13 @@ export function HarkBillingSection({ accountId }: { accountId: string }) {
 
             {poolLimit > 0 && (
               <div>
-                <div className="flex justify-between text-[11.5px]">
-                  <span className="text-ink-secondary">周期额度</span>
-                  <span className="tabular-nums text-ink">
-                    {fmtTokens(poolUsed)} / {fmtTokens(poolLimit)} ({poolPct}%)
-                  </span>
+                <div className="flex items-baseline justify-between gap-2 text-[11.5px]">
+                  <span className="text-ink-secondary">本月额度</span>
+                  <span className="tabular-nums text-ink">{fmtTokens(poolUsed)} / {fmtTokens(poolLimit)} token</span>
+                </div>
+                <div className="mt-0.5 flex items-baseline justify-between gap-2 text-[10.5px] text-ink-muted">
+                  <span>已用 {fmtTokens(poolUsed)}</span>
+                  <span>剩余 {fmtTokens(Math.max(0, poolLimit - poolUsed))}</span>
                 </div>
                 <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-hover">
                   <div className="h-full rounded-full bg-accent-600" style={{ width: `${poolPct}%` }} />

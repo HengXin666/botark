@@ -13,6 +13,7 @@ import { applyProxyToPartition } from '../muse/accountProxy'
 import { guessMediaMimeFromName, inferMediaMime } from '../mediaMime'
 import { partitionForAccount } from '../webContentsViewManager'
 import { HarkWatchRegistry } from './watchRegistry'
+import { parseHarkActiveActivity, parseHarkNarration, readHarkNarrationState } from '@shared/harkActivity'
 
 export const HARK_ORIGIN = 'https://app.hark.com'
 export const HARK_API_BASE = `${HARK_ORIGIN}/api`
@@ -91,7 +92,7 @@ export async function preparedSessionForAccount(accountId: string): Promise<Sess
   return sessionForAccount(accountId)
 }
 
-function harkClientHeaders(extra?: Record<string, string>): Record<string, string> {
+export function harkClientHeaders(extra?: Record<string, string>): Record<string, string> {
   return {
     Accept: 'application/json',
     'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
@@ -366,7 +367,8 @@ export async function fetchConversationSnapshotSummary(
     asks: syncState.extractAsks(),
     artifacts: syncState.extractArtifacts(),
     activeActivity: syncState.activeActivity,
-    narration: syncState.narration
+    narration: syncState.narration,
+    working: syncState.isWorking()
   }
 }
 
@@ -679,6 +681,19 @@ export interface HarkConversationSnapshotSummary {
   }>
   activeActivity?: string | null
   narration?: string | null
+  /** True while this conversation still has a turn in flight. */
+  working?: boolean
+}
+
+const TERMINAL_WORK_STATE = /^(completed|failed|cancelled|done|interrupted|expired)$/i
+
+function countActiveHarkWork(value: unknown): number {
+  if (!Array.isArray(value)) return 0
+  return value.filter((item) => {
+    if (!item || typeof item !== 'object') return true
+    const state = String((item as Record<string, unknown>)['state'] ?? '')
+    return !state || !TERMINAL_WORK_STATE.test(state)
+  }).length
 }
 
 /**
@@ -693,6 +708,46 @@ export class HarkConversationSyncState {
   readonly order: string[] = []
   activeActivity: string | null = null
   narration: string | null = null
+  /** Hark's own "still working" flag on the narration object. */
+  narrationWorking: boolean | null = null
+  /** Number of tool work items in the snapshot / active_work_set patch. */
+  activeWorkCount = 0
+  /** Last request state reported by request_update (open/completed/...). */
+  requestState: string | null = null
+
+  /** Current displayable activity, preferring root narration over tool labels. */
+  activityText(): string | null {
+    const messageNarration = [...this.messages.values()]
+      .reverse()
+      .map((message) => message.narration?.trim())
+      .find((text): text is string => Boolean(text))
+    return this.narration?.trim() || messageNarration || this.activeActivity?.trim() || null
+  }
+
+  /** True while this conversation still has work in flight. */
+  isWorking(): boolean {
+    if (this.requestState && TERMINAL_WORK_STATE.test(this.requestState)) return false
+    if (this.activeWorkCount > 0) return true
+    if (this.narrationWorking === true) return true
+    for (const message of this.messages.values()) {
+      if (message.isStreaming === true) {
+        if (
+          message.jobStatus &&
+          /^(completed|cancelled|failed|interrupted|cost_capped)$/i.test(message.jobStatus)
+        ) {
+          continue
+        }
+        return true
+      }
+      if (
+        message.jobStatus &&
+        /^(working|running|pending|started|in_progress)$/i.test(message.jobStatus)
+      ) {
+        return true
+      }
+    }
+    return false
+  }
 
   applyFrame(rawFrame: string): boolean {
     let parsed: Record<string, unknown>
@@ -710,8 +765,12 @@ export class HarkConversationSyncState {
       this.windows.clear()
       this.asks.clear()
       this.order.length = 0
-      this.activeActivity = typeof data['activeActivity'] === 'string' ? data['activeActivity'] : null
-      this.narration = typeof data['narration'] === 'string' ? data['narration'] : null
+      this.activeActivity = parseHarkActiveActivity(data['activeActivity'])
+      const snapshotNarration = readHarkNarrationState(data['narration'])
+      this.narration = snapshotNarration?.text ?? null
+      this.narrationWorking = snapshotNarration?.working ?? null
+      this.activeWorkCount = countActiveHarkWork(data['activeWork'])
+      this.requestState = null
 
       if (data['windows'] && typeof data['windows'] === 'object') {
         for (const [wid, wval] of Object.entries(data['windows'] as Record<string, unknown>)) {
@@ -830,6 +889,7 @@ export class HarkConversationSyncState {
               : terminalJob
                 ? false
                 : existing.isStreaming
+          const narrationState = 'narration' in fields ? readHarkNarrationState(fields['narration']) : null
           const updated: HarkChatMessage = {
             ...existing,
             ...(nextContent !== undefined && (nextContent || !existing.content)
@@ -839,7 +899,7 @@ export class HarkConversationSyncState {
             ...(typeof fields['jobStatus'] === 'string' ? { jobStatus: fields['jobStatus'] } : {}),
             ...(typeof fields['error'] === 'string' ? { error: fields['error'] } : {}),
             ...(typeof fields['thought'] === 'string' ? { thought: fields['thought'] } : {}),
-            ...(typeof fields['narration'] === 'string' ? { narration: fields['narration'] } : {}),
+            ...(narrationState?.text ? { narration: narrationState.text } : {}),
             ...(patched.actions?.length ? { actions: patched.actions } : {}),
             ...(patched.artifacts?.length
               ? {
@@ -853,6 +913,7 @@ export class HarkConversationSyncState {
               : {}),
             ...(patched.toolCalls?.length ? { toolCalls: patched.toolCalls } : {})
           }
+          if ('narration' in fields && narrationState && !narrationState.visible) delete updated.narration
           if (nextStreaming === false) {
             delete updated.thought
             delete updated.narration
@@ -932,17 +993,40 @@ export class HarkConversationSyncState {
           }
         }
       } else if (op === 'narration_update') {
-        this.narration = typeof p['value'] === 'string' ? p['value'] : null
-        changed = true
+        const narration = readHarkNarrationState(p['value'])
+        if (narration) {
+          if (!narration.visible) {
+            this.narration = null
+            this.narrationWorking = narration.working ?? false
+          } else {
+            // Status-only patches (working/live without a line) must not erase
+            // the last line the user is still reading.
+            if (narration.text) this.narration = narration.text
+            if (narration.working !== null) {
+              this.narrationWorking = narration.working
+              if (narration.working) this.requestState = null
+            }
+          }
+          changed = true
+        }
       } else if (op === 'active_activity_set') {
-        const v = p['value']
-        this.activeActivity =
-          typeof v === 'string'
-            ? v
-            : v && typeof v === 'object'
-              ? String((v as Record<string, unknown>)['label'] ?? (v as Record<string, unknown>)['type'] ?? '')
-              : null
+        this.activeActivity = parseHarkActiveActivity(p['value'])
         changed = true
+      } else if (op === 'active_work_set') {
+        this.activeWorkCount = countActiveHarkWork(p['value'])
+        if (this.activeWorkCount > 0) this.requestState = null
+        changed = true
+      } else if (op === 'request_update') {
+        const value = (p['value'] ?? {}) as Record<string, unknown>
+        const state = typeof value['state'] === 'string' ? value['state'] : ''
+        if (state) {
+          this.requestState = state
+          if (TERMINAL_WORK_STATE.test(state)) {
+            this.narrationWorking = false
+            this.activeWorkCount = 0
+          }
+          changed = true
+        }
       }
     }
     return changed
@@ -1358,7 +1442,7 @@ function normalizeSyncMessage(id: string, raw: Record<string, unknown>): HarkCha
     ...(jobStatus ? { jobStatus } : {}),
     ...(errorText ? { error: errorText } : {}),
     thought: typeof raw['thought'] === 'string' ? raw['thought'] : undefined,
-    narration: typeof raw['narration'] === 'string' ? raw['narration'] : undefined,
+    narration: parseHarkNarration(raw['narration'])?.text,
     createdAt: (raw['timestamp'] ?? raw['createdAt'] ?? raw['created_at'] ?? raw['createdAtMs'] ?? null) as
       | string
       | number

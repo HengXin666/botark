@@ -1,4 +1,4 @@
-# BotArk for Android (Native Jetpack Compose · Zero-Server Companion)
+# BotArk for Android (Linux Renderer Shell · Zero-Server Companion)
 
 <div align="center">
   <table>
@@ -23,7 +23,7 @@
   </table>
 </div>
 
-Native **Jetpack Compose + Material 3 (Kotlin · Android 8.0+ / API 26+)** companion app for **BotArk Desktop**, matching BotArk for iOS pixel-for-pixel with **100% Zero-Server** sync and **zero Google Play Services dependency** (CameraX + offline ZXing QR scanner works on every Android device, including HarmonyOS / HyperOS / ColorOS / OriginOS).
+A **Kotlin/Compose shell around the exact Linux renderer bundle** (Android 8.0+ / API 26+). The workspace, bot list, chat, markdown, tool cards, approvals, Hark project page and animated avatars are the same React UI as BotArk Desktop, rendered in a hardened WebView and driven by a native JS bridge for pairing, the desktop WebSocket, Hark/Hermes direct sessions and the bundled proxy core. Native Compose keeps onboarding, QR pairing, sync settings and platform dialogs. Sync remains **100% Zero-Server** with **zero Google Play Services dependency** (CameraX + offline ZXing QR scanner works on every Android device, including HarmonyOS / HyperOS / ColorOS / OriginOS).
 
 ## ✨ Two Zero-Server Sync Channels
 
@@ -42,6 +42,7 @@ Native **Jetpack Compose + Material 3 (Kotlin · Android 8.0+ / API 26+)** compa
 Download `BotArk-<version>-android.apk` directly from [**GitHub Releases**](https://github.com/qybaihe/botark/releases/latest) and install on any Android 8.0+ phone.
 
 ### Option 2: Build from Source with Gradle / Android Studio
+Requires Node.js 20+ and npm on the build machine: Gradle's `buildWebRenderer` task runs `npm run build:web` and packages the generated bundle into the APK automatically. On JDK 27 hosts, set `JAVA_HOME` to a JDK 17 installation first (Gradle 8.x does not accept JDK 27).
 ```bash
 cd android/BotArk
 ./gradlew :app:testDebugUnitTest :app:assembleDebug

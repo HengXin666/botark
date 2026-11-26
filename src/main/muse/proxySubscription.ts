@@ -53,7 +53,7 @@ export function parseProxyLine(
   if (schemeMatch) {
     const rawScheme = schemeMatch[1]!.toLowerCase()
     const mode: Exclude<MuseProxyMode, "direct"> =
-      rawScheme === "socks5h" ? "socks5h" : rawScheme === "socks5" ? "socks5" : "http"
+      rawScheme === "socks5h" ? "socks5h" : rawScheme === "socks5" ? "socks5" : rawScheme === "https" ? "https" : "http"
     const rest = schemeMatch[2]!.replace(/\/.*$/, "")
     const atIdx = rest.lastIndexOf("@")
     const hostPort = atIdx >= 0 ? rest.slice(atIdx + 1) : rest

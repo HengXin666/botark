@@ -19,7 +19,7 @@ export { registerProxyCredentials, lookupProxyCredentials, createProxyAgent } fr
 /** One lock for both proxy files: every change is read-modify-write across awaits. */
 const withProxyStoreLock = createMutex()
 
-export type MuseProxyMode = "direct" | "http" | "socks5" | "socks5h"
+export type MuseProxyMode = "direct" | "http" | "https" | "socks5" | "socks5h"
 
 export interface MuseProxyConfig {
   mode: MuseProxyMode
@@ -47,8 +47,11 @@ function writeStore(store: StoreFile): void {
   writeJsonAtomic(storePath(), store)
 }
 
+const PROXY_ENDPOINT_MODES = new Set<MuseProxyMode>(["http", "https", "socks5", "socks5h"])
+
 function normalize(cfg: MuseProxyConfig | null | undefined): MuseProxyConfig {
   if (!cfg || cfg.mode === "direct") return { mode: "direct" }
+  if (!PROXY_ENDPOINT_MODES.has(cfg.mode)) throw new Error("Unsupported proxy mode")
   const host = (cfg.host || "").trim()
   const port = Number(cfg.port)
   if (!host || !Number.isInteger(port) || port < 1 || port > 65535) {
@@ -83,9 +86,25 @@ export class ProxyConfigUnreadableError extends Error {
 /** Unreachable proxy used to block a partition whose real proxy cannot be read. */
 const BLOCKING_PROXY_RULE = "http://127.0.0.1:9"
 
+/**
+ * Hark polling calls loadProxyConfig/applyProxyToPartition on every request.
+ * Without a cache that is a synchronous JSON read plus a keychain decrypt per
+ * request; with 80 accounts it is the main-process bottleneck. The cache is
+ * invalidated by this module's own save/clear paths.
+ */
+const proxyConfigCache = new Map<string, MuseProxyConfig>()
+
+function cacheProxyConfig(accountId: string, cfg: MuseProxyConfig): MuseProxyConfig {
+  const copy = { ...cfg }
+  proxyConfigCache.set(accountId, copy)
+  return { ...copy }
+}
+
 export async function loadProxyConfig(accountId: string): Promise<MuseProxyConfig> {
+  const cached = proxyConfigCache.get(accountId)
+  if (cached) return { ...cached }
   const entry = readStore()[accountId]
-  if (!entry?.enc) return { mode: "direct" }
+  if (!entry?.enc) return cacheProxyConfig(accountId, { mode: "direct" })
   let available = false
   try {
     available = await safeStorage.isAsyncEncryptionAvailable()
@@ -95,7 +114,7 @@ export async function loadProxyConfig(accountId: string): Promise<MuseProxyConfi
   if (!available) throw new ProxyConfigUnreadableError()
   try {
     const decrypted = await safeStorage.decryptStringAsync(Buffer.from(entry.enc, "base64"))
-    return normalize(JSON.parse(decrypted.result) as MuseProxyConfig)
+    return cacheProxyConfig(accountId, normalize(JSON.parse(decrypted.result) as MuseProxyConfig))
   } catch (err) {
     throw new ProxyConfigUnreadableError(err instanceof Error ? err.message : undefined)
   }
@@ -123,6 +142,7 @@ async function saveProxyConfigUnlocked(accountId: string, input: MuseProxyConfig
   if (next.mode === "direct") {
     delete store[accountId]
     writeStore(store)
+    proxyConfigCache.set(accountId, { mode: "direct" })
     await applyProxyToPartition(accountId, next)
     return { mode: "direct", hasPassword: false }
   }
@@ -138,6 +158,7 @@ async function saveProxyConfigUnlocked(accountId: string, input: MuseProxyConfig
   const enc = await safeStorage.encryptStringAsync(JSON.stringify(next))
   store[accountId] = { enc: enc.toString("base64") }
   writeStore(store)
+  proxyConfigCache.set(accountId, { ...next })
   await applyProxyToPartition(accountId, next)
   return {
     mode: next.mode,
@@ -154,6 +175,7 @@ export async function clearProxyConfig(accountId: string): Promise<void> {
     delete store[accountId]
     writeStore(store)
   })
+  proxyConfigCache.set(accountId, { mode: "direct" })
   await applyProxyToPartition(accountId, { mode: "direct" })
 }
 
@@ -332,18 +354,34 @@ export async function assignProxyPoolToAccounts(
   return assignInFlight
 }
 
-/** Public: pull live http nodes from node-maint, merge into pool and report stats. */
+let syncInFlight: Promise<{ live: number }> | null = null
+
+/** Public: pull live nodes from node-maint, merge into pool and report stats. */
 export async function syncNodeMaintPool(onProgress?: (p: ProxyAssignProgress) => void): Promise<{ live: number }> {
-  const live = await seedPoolFromNodeMaint(onProgress)
-  return { live }
+  // App bootstrap and the settings card can both fire on launch; one pull is enough.
+  if (syncInFlight) return syncInFlight
+  syncInFlight = seedPoolFromNodeMaint(onProgress)
+    .then((live) => ({ live }))
+    .finally(() => { syncInFlight = null })
+  return syncInFlight
 }
 
-/** Pull live http nodes from node-maint and merge them into the proxy pool. */
+/** One node-maint pull serves both the explicit sync and the assignment that follows it. */
+let lastSeedAt = 0
+let lastSeed: NodeMaintLiveNode[] = []
+const SEED_CACHE_MS = 30_000
+
 async function seedPoolFromNodeMaint(onProgress?: (p: ProxyAssignProgress) => void): Promise<number> {
-  let live: NodeMaintLiveNode[]
-  try { live = await syncNodeMaintLiveNodes() } catch { return 0 }
+  const fresh = Date.now() - lastSeedAt < SEED_CACHE_MS
+  const live = fresh ? lastSeed : await syncNodeMaintLiveNodes()
+  if (!fresh) {
+    lastSeed = live
+    lastSeedAt = Date.now()
+  }
   if (live.length === 0) return 0
-  const lines = live.map((n) => `http://${n.server}:${n.port}`).join('\n')
+  // Preserve the endpoint scheme: an https node is a TLS proxy listener and must
+  // not be downgraded to http:// (`MuseProxyMode` has a dedicated https mode).
+  const lines = live.map((n) => `${n.mode}://${n.server}:${n.port}`).join('\n')
   await importProxyPool(lines, 'http')
   onProgress?.({ probed: live.length, live: live.length, total: live.length, batch: 1, removed: 0, done: true })
   return live.length
@@ -368,7 +406,9 @@ async function runAssign(
     const total = candidates.length
     const liveSlots: typeof pool = []
     const deadIds = new Set<string>()
-    const deadline = Date.now() + 3000
+    // Public proxy nodes routinely need 2.5-3.5s for CONNECT + TLS; an 800ms
+    // probe used to mark every working node dead and wipe the whole pool.
+    const deadline = Date.now() + 15_000
     const batchSize = 32
     const probeBudget = Math.min(candidates.length, Math.max(accountIds.length, 64))
     let probed = 0
@@ -379,7 +419,7 @@ async function runAssign(
       batch += 1
       const slice = candidates.slice(i, i + batchSize)
       const results = await Promise.all(slice.map(async ({ slot, cfg }) => {
-        const probe = await probeProxyNode(cfg, 800)
+        const probe = await probeProxyNode(cfg, 4_000)
         return { slot, ok: probe.ok }
       }))
       probed += slice.length
@@ -482,7 +522,7 @@ export async function assignOneUnusedProxy(accountId: string): Promise<AssignNex
       const results = await Promise.all(slice.map(async (slot) => {
         const cfg = await decryptPoolItem(slot)
         if (!cfg || cfg.mode === "direct" || !cfg.host || !cfg.port) return { id: slot.id, ok: false }
-        const probe = await probeProxyNode(cfg, 800)
+        const probe = await probeProxyNode(cfg, 4_000)
         return { id: slot.id, ok: probe.ok }
       }))
       probed += results.length
@@ -534,6 +574,7 @@ export async function reimportProxyConfigs(
   await withProxyStoreLock(() => {
     writePoolStore(pool)
     writeStore(store)
+    proxyConfigCache.clear()
   })
   return { pool: pool.length, accounts: Object.keys(store).length }
 }

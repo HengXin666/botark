@@ -1,4 +1,4 @@
-import { type ReactNode, memo, useEffect, useState } from 'react'
+import { type ReactNode, memo, useEffect, useRef, useState } from 'react'
 import { Check, Copy, Download, Image as ImageIcon, X, ZoomIn } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { t } from '@/lib/i18n'
@@ -14,9 +14,49 @@ import { t } from '@/lib/i18n'
  * - Inline: **bold**, *italic*, ~~strikethrough~~, `code`, [label](url), ![alt](img), bare https:// URLs
  */
 
+function dataUrlToObjectUrl(dataUrl: string): string | null {
+  const comma = dataUrl.indexOf(',')
+  if (comma < 0 || !dataUrl.slice(5, comma).includes(';base64')) return null
+  try {
+    const binary = atob(dataUrl.slice(comma + 1))
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+    const mime = dataUrl.slice(5, comma).split(';')[0] || 'application/octet-stream'
+    return URL.createObjectURL(new Blob([bytes], { type: mime }))
+  } catch {
+    return null
+  }
+}
+
 function InlineMarkdownImage({ src, alt }: { src: string; alt: string }) {
   const [zoomed, setZoomed] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [displaySrc, setDisplaySrc] = useState<string | null>(() =>
+    /^data:image\//i.test(src) ? null : src
+  )
+  const objectUrlRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+    if (!/^data:image\//i.test(src)) {
+      setDisplaySrc(src)
+      return
+    }
+    const url = dataUrlToObjectUrl(src)
+    if (url) {
+      objectUrlRef.current = url
+      setDisplaySrc(url)
+    } else {
+      setFailed(true)
+    }
+  }, [src])
+
+  useEffect(() => () => {
+    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current)
+  }, [])
 
   useEffect(() => {
     if (!zoomed) return
@@ -62,12 +102,14 @@ function InlineMarkdownImage({ src, alt }: { src: string; alt: string }) {
           className="block cursor-zoom-in"
           title="点击放大查看"
         >
+          {displaySrc && (
           <img
-            src={src}
+            src={displaySrc}
             alt={alt}
             onError={() => setFailed(true)}
             className="max-h-72 max-w-full object-contain"
           />
+          )}
         </button>
         <span className="pointer-events-none absolute top-2 right-2 flex items-center gap-1 opacity-0 transition-opacity group-hover/mdimg:opacity-100">
           <button
@@ -118,12 +160,12 @@ function InlineMarkdownImage({ src, alt }: { src: string; alt: string }) {
               </button>
             </span>
           </span>
-          <img
-            src={src}
+          {displaySrc && <img
+            src={displaySrc}
             alt={alt}
             onClick={(e) => e.stopPropagation()}
             className="max-h-[82vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-          />
+          />}
         </span>
       )}
     </>

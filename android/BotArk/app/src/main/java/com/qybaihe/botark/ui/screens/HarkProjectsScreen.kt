@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qybaihe.botark.model.SyncedBot
+import com.qybaihe.botark.service.HarkProjectPolicy
 import kotlinx.coroutines.delay
 import com.qybaihe.botark.model.SyncedHarkProject
 import com.qybaihe.botark.ui.components.PlatformIcon
@@ -77,9 +78,9 @@ fun HarkProjectsScreen(
     BackHandler { onBack() }
 
     val projects = bot.harkProjects
-    val active = projects.filter { it.kind != "main" && it.archivedAt == null }.sortedByDescending { it.activityAt }
-    val main = projects.firstOrNull { it.kind == "main" }
-    val working = active.filter { it.status.equals("working", ignoreCase = true) }
+    val active = HarkProjectPolicy.activeProjects(projects)
+    val main = HarkProjectPolicy.mainProject(projects)
+    val working = HarkProjectPolicy.workingProjects(projects)
     var pendingDelete by remember { mutableStateOf<SyncedHarkProject?>(null) }
     var autoOpenDone by remember(bot.id) { mutableStateOf(false) }
 
@@ -93,9 +94,8 @@ fun HarkProjectsScreen(
     LaunchedEffect(bot.id, bot.activeSessionId, state.harkResumeLast, working.map { it.id }) {
         if (autoOpenDone || projects.isEmpty() || projects.none { it.status != null }) return@LaunchedEffect
         autoOpenDone = true
-        if (state.harkResumeLast && bot.activeSessionId.isNullOrBlank() && working.size == 1) {
-            onOpenProject(bot, working.first())
-        }
+        HarkProjectPolicy.autoOpenProject(bot.activeSessionId, state.harkResumeLast, projects)
+            ?.let { project -> onOpenProject(bot, project) }
     }
 
     Column(Modifier.fillMaxSize().background(palette.canvas)) {

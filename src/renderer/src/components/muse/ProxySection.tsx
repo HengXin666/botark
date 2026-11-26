@@ -12,6 +12,7 @@ import { useBotStore } from '@/store/botStore'
 const MODES: Array<{ value: MuseProxyMode; label: () => string }> = [
   { value: 'direct', label: () => t('Direct (no proxy)') },
   { value: 'http', label: () => t('HTTP proxy') },
+  { value: 'https', label: () => t('HTTPS proxy') },
   { value: 'socks5', label: () => t('SOCKS5') },
   { value: 'socks5h', label: () => t('SOCKS5H (remote DNS)') }
 ]

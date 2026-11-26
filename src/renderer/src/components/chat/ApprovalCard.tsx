@@ -5,6 +5,7 @@ import type { ApprovalDecision, MuseApproval } from '@adapters/types'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
 import { t } from '@/lib/i18n'
+import { androidNativeCommand, getAndroidApprovals } from '@/lib/androidBridge'
 import { useBotStore } from '@/store/botStore'
 
 /** Registrable domain for the "always" note: agent.qq.com → qq.com. Heuristic, display only. */
@@ -135,6 +136,7 @@ export function ChatApprovals({
 }) {
   const status = useBotStore((s) => s.accounts[accountId]?.status)
   const [pending, setPending] = useState<MuseApproval[]>([])
+  const [mobilePending, setMobilePending] = useState<MuseApproval[]>([])
   const [busyId, setBusyId] = useState<string>()
   const [error, setError] = useState<string>()
 
@@ -150,24 +152,57 @@ export function ChatApprovals({
     return unsub
   }, [accountId, platformId, status])
 
+  // The Android shell receives approvals through the native workspace snapshot
+  // rather than adapter events; project them into the same card component.
+  useEffect(() => {
+    const apply = () => {
+      setMobilePending(
+        getAndroidApprovals()
+          .filter((item) => item.accountId === accountId)
+          .map((item) => ({
+            id: item.id,
+            status: 'pending',
+            title: item.title,
+            detail: item.detail ?? undefined,
+            host: item.host ?? undefined,
+            reason: item.reason ?? undefined,
+            decisionOptions: (item.decisionOptions ?? undefined) as MuseApproval['decisionOptions']
+          }))
+      )
+    }
+    apply()
+    window.addEventListener('botark-native-state', apply)
+    return () => window.removeEventListener('botark-native-state', apply)
+  }, [accountId])
+
+  const sourcePending = mobilePending.length ? mobilePending : pending
   const visiblePending =
     platformId === 'grok' && agentId
-      ? pending.filter((a) => {
+      ? sourcePending.filter((a) => {
           const rawAgent =
             a.raw && typeof a.raw === 'object'
               ? String((a.raw as Record<string, unknown>)['agentId'] ?? '')
               : ''
           return !rawAgent || rawAgent === agentId
         })
-      : pending
+      : sourcePending
 
   if (!visiblePending.length) return null
   const decide = async (id: string, decision: ApprovalDecision) => {
     const adapter = adapterRegistry.get(platformId)
-    if (!adapter?.decideApproval) return
     setBusyId(id)
     setError(undefined)
     try {
+      if (mobilePending.length) {
+        androidNativeCommand('decideApproval', {
+          accountId,
+          platformId,
+          approvalId: id,
+          decision
+        })
+        return
+      }
+      if (!adapter?.decideApproval) return
       await adapter.decideApproval(accountId, id, decision)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

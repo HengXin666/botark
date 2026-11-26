@@ -22,6 +22,6 @@ export async function createProxyAgent(accountId: string): Promise<Agent | undef
   const cfg: MuseProxyConfig = await loadProxyConfig(accountId)
   const url = buildAccountProxyUrl(cfg)
   if (!url) return undefined
-  if (cfg.mode === 'http') return new HttpsProxyAgent(url) as unknown as Agent
+  if (cfg.mode === 'http' || cfg.mode === 'https') return new HttpsProxyAgent(url) as unknown as Agent
   return new SocksProxyAgent(url) as unknown as Agent
 }

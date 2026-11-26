@@ -13,8 +13,8 @@ android {
         applicationId = "com.qybaihe.botark"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.11.0"
+        versionCode = 6
+        versionName = "0.12.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -70,6 +70,9 @@ dependencies {
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.activity:activity-compose:1.10.1")
+    // Serves the bundled Linux renderer from an https:// appassets origin so
+    // ES modules, WebGL (GrokBotMark) and localStorage work inside the WebView.
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
 
@@ -90,4 +93,30 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
+}
+
+// The Android workspace is the Linux renderer bundle. Build it from the repo
+// root and package it under src/main/assets/web on every APK build, so the
+// phone can never drift from the desktop interaction model again.
+val repoRootDir = rootProject.projectDir.parentFile.parentFile
+val buildWebRenderer = tasks.register<Exec>("buildWebRenderer") {
+    workingDir = repoRootDir
+    commandLine("npm", "run", "build:web")
+    inputs.files(
+        repoRootDir.resolve("src/renderer"),
+        repoRootDir.resolve("src/shared"),
+        repoRootDir.resolve("vite.web.config.mts"),
+        repoRootDir.resolve("vite.shared.mts")
+    )
+    outputs.dir(repoRootDir.resolve("dist/web"))
+}
+
+val copyWebRenderer = tasks.register<Sync>("copyWebRenderer") {
+    dependsOn(buildWebRenderer)
+    from(repoRootDir.resolve("dist/web"))
+    into(layout.projectDirectory.dir("src/main/assets/web"))
+}
+
+tasks.named("preBuild") {
+    dependsOn(copyWebRenderer)
 }

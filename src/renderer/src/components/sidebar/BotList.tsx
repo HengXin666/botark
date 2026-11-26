@@ -3,7 +3,7 @@ import { ChevronRight, FolderPlus, MoreHorizontal, Pencil, Settings2, Trash2 } f
 import { InlineEdit } from '@/components/ui/InlineEdit'
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu'
 import { cn } from '@/lib/cn'
-import { getBotStatus, lastMessage } from '@/lib/selectors'
+import { getBotStatus } from '@/lib/selectors'
 import { useBotStore } from '@/store/botStore'
 import type { BotGroup } from '@/types'
 import { BotListItem } from './BotListItem'
@@ -115,12 +115,10 @@ function SectionHeader({
   )
 }
 
-export function BotList() {
+export function BotList({ mobile = false }: { mobile?: boolean } = {}) {
   const groups = useBotStore((s) => s.groups)
   const bots = useBotStore((s) => s.bots)
   const accounts = useBotStore((s) => s.accounts)
-  const messages = useBotStore((s) => s.messages)
-  const typing = useBotStore((s) => s.typing)
   const activity = useBotStore((s) => s.activity)
   const collapsed = useBotStore((s) => s.collapsedGroups)
   const sidebarCollapsed = useBotStore((s) => s.sidebarCollapsed)
@@ -151,8 +149,6 @@ export function BotList() {
               bot={bot}
               layout="collapsed"
               status={getBotStatus(bot, accounts)}
-              last={lastMessage(messages[bot.id])}
-              typing={typing[bot.id] === true}
               activity={activity[bot.activeAccountId]}
               selected={bot.id === selectedBotId}
               onSelect={selectBot}
@@ -174,8 +170,6 @@ export function BotList() {
                     bot={bot}
                     layout="collapsed"
                     status={getBotStatus(bot, accounts)}
-                    last={lastMessage(messages[bot.id])}
-                    typing={typing[bot.id] === true}
                     activity={activity[bot.activeAccountId]}
                     selected={bot.id === selectedBotId}
                     onSelect={selectBot}
@@ -198,11 +192,15 @@ export function BotList() {
               <div
                 className={cn(
                   'grid gap-1.5',
-                  pinnedBots.length === 1
-                    ? 'grid-cols-2'
-                    : pinnedBots.length === 2
+                  mobile
+                    ? pinnedBots.length === 1
+                      ? 'grid-cols-1'
+                      : 'grid-cols-2'
+                    : pinnedBots.length === 1
                       ? 'grid-cols-2'
-                      : 'grid-cols-3'
+                      : pinnedBots.length === 2
+                        ? 'grid-cols-2'
+                        : 'grid-cols-3'
                 )}
               >
                 {pinnedBots.map((bot) => (
@@ -211,8 +209,6 @@ export function BotList() {
                     bot={bot}
                     layout="pinned"
                     status={getBotStatus(bot, accounts)}
-                    last={lastMessage(messages[bot.id])}
-                    typing={typing[bot.id] === true}
                     activity={activity[bot.activeAccountId]}
                     selected={bot.id === selectedBotId}
                     onSelect={selectBot}
@@ -282,8 +278,6 @@ export function BotList() {
                           bot={bot}
                           layout="expanded"
                           status={getBotStatus(bot, accounts)}
-                          last={lastMessage(messages[bot.id])}
-                          typing={typing[bot.id] === true}
                           activity={activity[bot.activeAccountId]}
                           selected={bot.id === selectedBotId}
                           onSelect={selectBot}

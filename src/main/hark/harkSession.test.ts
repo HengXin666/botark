@@ -23,9 +23,9 @@ describe('Hark session validation', () => {
     }
   )
 
-  it('does not authenticate when the get-session request throws', async () => {
-    getAuthSessionMock.mockRejectedValue(new Error('unauthorized'))
-    expect(await probeHarkSession('account')).toEqual({ signedIn: false })
+  it('does not authenticate or call it a sign-out when the probe request throws', async () => {
+    getAuthSessionMock.mockRejectedValue(new Error('proxy unavailable'))
+    expect(await probeHarkSession('account')).toEqual({ signedIn: false, unavailable: true })
   })
 
   it('returns profile data for a valid session', async () => {

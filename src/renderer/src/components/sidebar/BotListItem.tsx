@@ -15,8 +15,6 @@ export type BotRowLayout = 'expanded' | 'pinned' | 'collapsed'
 interface BotListItemProps {
   bot: Bot
   status: ConnectionStatus
-  last: ChatMessage | undefined
-  typing: boolean
   activity?: BotActivity
   selected: boolean
   layout?: BotRowLayout
@@ -66,13 +64,15 @@ function previewText(
 export const BotListItem = memo(function BotListItem({
   bot,
   status,
-  last,
-  typing,
   activity,
   selected,
   layout = 'expanded',
   onSelect
 }: BotListItemProps) {
+  // Subscribe per row instead of in BotList: one streaming bot must not
+  // re-render every row in the sidebar on every token.
+  const last = useBotStore((s) => s.messages[bot.id]?.at(-1))
+  const typing = useBotStore((s) => s.typing[bot.id] === true)
   const renameBot = useBotStore((s) => s.renameBot)
   const removeBot = useBotStore((s) => s.removeBot)
   const groups = useBotStore((s) => s.groups)

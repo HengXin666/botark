@@ -9,7 +9,7 @@ import { getBridge } from '@/lib/bridge'
 import { cn } from '@/lib/cn'
 import { useBotStore } from '@/store/botStore'
 import type { Bot } from '@/types'
-import { harkActivityTime, harkHasHistory, harkProjectTitle, parseHarkConversations, parseHarkStatuses, type HarkProjectSummary } from '@shared/harkProjects'
+import { harkHasHistory, harkProjectStatus, harkProjectTitle, harkProjectsByRecency, harkWorkingProjects, parseHarkConversations, parseHarkStatuses, shouldAutoOpenHarkProject, type HarkProjectSummary } from '@shared/harkProjects'
 
 type HarkConversation = HarkProjectSummary
 
@@ -25,10 +25,6 @@ function asString(value: unknown): string {
 
 function conversationTitle(conversation: HarkConversation): string {
   return harkProjectTitle(conversation)
-}
-
-function activityTime(conversation: HarkConversation): number {
-  return harkActivityTime(conversation)
 }
 
 function formatActivity(value: string): string {
@@ -164,11 +160,12 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
     if (!hark?.rpc || !accountId) return
     try {
       const result = await hark.rpc({ accountId, op: 'conversationStatus' })
-      if (result.ok) setStatuses(parseHarkStatuses(result.data))
+      if (result.ok) {
+        setStatuses(parseHarkStatuses(result.data))
+        setStatusLoaded(true)
+      }
     } catch {
       // Status polling is best-effort; keep the last known values.
-    } finally {
-      setStatusLoaded(true)
     }
   }, [accountId])
 
@@ -225,18 +222,13 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
   }, [loadConversations, refreshStatuses])
 
   const mainConversation = useMemo(() => conversations?.find((item) => item.kind === 'main') ?? null, [conversations])
-  const projects = useMemo(() => {
-    if (!conversations) return []
-    return [...conversations]
-      .filter((item) => item.kind === 'project' && item.archivedAt === null)
-      .sort((left, right) => activityTime(right) - activityTime(left))
-  }, [conversations])
+  const projects = useMemo(() => (conversations ? harkProjectsByRecency(conversations) : []), [conversations])
   const filteredProjects = useMemo(() => {
     const keyword = query.trim().toLowerCase()
     return keyword ? projects.filter((item) => conversationTitle(item).toLowerCase().includes(keyword)) : projects
   }, [projects, query])
   const workingProjects = useMemo(
-    () => projects.filter((item) => statuses[item.id]?.toLowerCase() === 'working'),
+    () => harkWorkingProjects(projects, statuses),
     [projects, statuses]
   )
 
@@ -280,12 +272,14 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
   useEffect(() => {
     if (autoOpenedRef.current || !conversations || !statusLoaded) return
     autoOpenedRef.current = true
-    if (bot.activeSessionId || !harkResumeLast) return
-    const working = conversations
-      .filter((item) => item.kind === 'project' && item.archivedAt === null && statuses[item.id]?.toLowerCase() === 'working')
-      .sort((left, right) => activityTime(right) - activityTime(left))
-    if (working.length === 1) void openConversation(working[0]!)
-  }, [bot.activeSessionId, conversations, harkResumeLast, openConversation, statusLoaded, statuses])
+    const autoOpen = shouldAutoOpenHarkProject({
+      activeSessionId: bot.activeSessionId,
+      resumeLast: harkResumeLast,
+      projects,
+      statuses
+    })
+    if (autoOpen) void openConversation(autoOpen)
+  }, [bot.activeSessionId, conversations, harkResumeLast, openConversation, statusLoaded, statuses, workingProjects])
 
   const openComposer = () => {
     setComposerOpen(true)
@@ -357,6 +351,16 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-5 py-5">
+          <label className="flex items-center gap-2 rounded-2xl border border-line bg-surface px-3 py-2 text-[11.5px] text-ink-secondary sm:hidden">
+            <input
+              type="checkbox"
+              checked={harkResumeLast}
+              onChange={(event) => setHarkResumeLast(event.target.checked)}
+              className="size-3.5 shrink-0 accent-accent-600"
+            />
+            <span className="shrink-0">恢复上次对话</span>
+            <span className="min-w-0 truncate text-ink-muted">优先打开正在工作的项目</span>
+          </label>
           {error && <ErrorBanner message={error} onRetry={() => void refreshAll()} />}
 
           {composerOpen && (
@@ -421,7 +425,7 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
               {mainConversation && (
                 <section className="flex flex-col gap-2">
                   <h2 className="px-1 text-[11.5px] font-medium tracking-wide text-ink-muted">主对话</h2>
-                  <ConversationRow bot={bot} conversation={mainConversation} status={statuses[mainConversation.id]?.toLowerCase()} opening={openingId === mainConversation.id} featured onOpen={(conversation) => void openConversation(conversation)} />
+                  <ConversationRow bot={bot} conversation={mainConversation} status={harkProjectStatus(mainConversation, statuses)} opening={openingId === mainConversation.id} featured onOpen={(conversation) => void openConversation(conversation)} />
                 </section>
               )}
 
@@ -441,7 +445,7 @@ export function HarkProjectsPage({ bot }: HarkProjectsPageProps) {
                 ) : (
                   <div className="flex flex-col gap-2">
                     {filteredProjects.map((conversation) => (
-                      <ConversationRow key={conversation.id} bot={bot} conversation={conversation} status={statuses[conversation.id]?.toLowerCase()} opening={openingId === conversation.id} deleting={deletingId === conversation.id} onOpen={(next) => void openConversation(next)} onDelete={(next) => void deleteConversation(next)} />
+                      <ConversationRow key={conversation.id} bot={bot} conversation={conversation} status={harkProjectStatus(conversation, statuses)} opening={openingId === conversation.id} deleting={deletingId === conversation.id} onOpen={(next) => void openConversation(next)} onDelete={(next) => void deleteConversation(next)} />
                     ))}
                   </div>
                 )}

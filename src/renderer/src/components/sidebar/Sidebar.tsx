@@ -1,5 +1,5 @@
 import { type KeyboardEvent } from 'react'
-import { PanelLeft, Plus, QrCode, Search, Settings, Sparkles } from 'lucide-react'
+import { BarChart3, PanelLeft, Plus, QrCode, Search, Settings, Sparkles } from 'lucide-react'
 import { hasSeenOnboarding } from '@/components/onboarding/OnboardingGuide'
 import { GrokBotMark } from '@/components/ui/GrokBotMark'
 import { IconButton } from '@/components/ui/IconButton'
@@ -27,6 +27,8 @@ export function Sidebar({ onAddBot }: SidebarProps) {
   const sidebarCollapsed = useBotStore((s) => s.sidebarCollapsed)
   const toggleSidebarCollapsed = useBotStore((s) => s.toggleSidebarCollapsed)
   const settingsOpen = useBotStore((s) => s.settingsOpen)
+  const quotaStatsOpen = useBotStore((s) => s.quotaStatsOpen)
+  const setQuotaStatsOpen = useBotStore((s) => s.setQuotaStatsOpen)
   const setSettingsOpen = useBotStore((s) => s.setSettingsOpen)
   const onboardingOpen = useBotStore((s) => s.onboardingOpen)
   const setOnboardingOpen = useBotStore((s) => s.setOnboardingOpen)
@@ -93,6 +95,14 @@ export function Sidebar({ onAddBot }: SidebarProps) {
           </span>
           <IconButton
             round
+            active={quotaStatsOpen}
+            label="额度统计"
+            onClick={() => setQuotaStatsOpen(!quotaStatsOpen)}
+          >
+            <BarChart3 />
+          </IconButton>
+          <IconButton
+            round
             active={settingsOpen}
             label="设置与账号"
             onClick={() => setSettingsOpen(!settingsOpen)}
@@ -148,6 +158,14 @@ export function Sidebar({ onAddBot }: SidebarProps) {
           </span>
           <Settings className="size-4 shrink-0 text-ink-secondary" aria-hidden />
         </button>
+        <IconButton
+          round
+          active={quotaStatsOpen}
+          label="额度统计"
+          onClick={() => setQuotaStatsOpen(!quotaStatsOpen)}
+        >
+          <BarChart3 />
+        </IconButton>
         <IconButton
           round
           label="iOS 扫码同步"

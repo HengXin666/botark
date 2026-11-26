@@ -5,6 +5,7 @@ import android.graphics.Color as AndroidColor
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -62,6 +63,7 @@ import com.qybaihe.botark.ui.screens.QRScannerSheet
 import com.qybaihe.botark.ui.screens.StandaloneWebScreen
 import com.qybaihe.botark.ui.screens.HarkProjectsScreen
 import com.qybaihe.botark.ui.screens.SyncSettingsScreen
+import com.qybaihe.botark.ui.screens.WebWorkspaceScreen
 import com.qybaihe.botark.ui.theme.ArkColors
 import com.qybaihe.botark.ui.theme.ArkMonoFamily
 import com.qybaihe.botark.ui.theme.ArkSansFamily
@@ -151,7 +153,10 @@ private fun BotArkRoot(
     var showScanner by remember { mutableStateOf(false) }
     var showAddHermes by remember { mutableStateOf(false) }
     var showAddPicker by remember { mutableStateOf(false) }
+    var showSync by remember { mutableStateOf(false) }
+    var showApprovals by remember { mutableStateOf(false) }
     var pendingWebPlatform by remember { mutableStateOf<PlatformId?>(null) }
+    val useWebWorkspace = state.snapshot.bots.isNotEmpty()
 
     val handlePickPlatform: (PlatformId) -> Unit = { platform ->
         if (platform == PlatformId.HERMES) {
@@ -171,7 +176,22 @@ private fun BotArkRoot(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        if (activeBotId != null && currentTab == MainTab.CHATS) {
+        if (useWebWorkspace) {
+            WebWorkspaceScreen(
+                viewModel = viewModel,
+                state = state,
+                onOpenNative = { screen ->
+                    when (screen) {
+                        "add" -> showAddPicker = true
+                        "qr" -> showScanner = true
+                        "sync" -> showSync = true
+                        "approvals" -> showApprovals = true
+                        "hermes" -> showAddHermes = true
+                    }
+                },
+                onBack = { (context as? android.app.Activity)?.finish() }
+            )
+        } else if (activeBotId != null && currentTab == MainTab.CHATS) {
             val activeBot = state.snapshot.bots.firstOrNull { it.id == activeBotId }
             val isHark = activeBot?.platformId == PlatformId.HARK
             val harkProjectMode = isHark && (
@@ -251,7 +271,7 @@ private fun BotArkRoot(
 
         // Signature Floating Obsidian Capsule Dock (smoothly hides inside Chat/Web for edge-to-edge immersion!)
         AnimatedVisibility(
-            visible = activeBotId == null,
+            visible = activeBotId == null && !useWebWorkspace,
             enter = fadeIn() + slideInVertically { it / 2 },
             exit = fadeOut() + slideOutVertically { it / 2 },
             modifier = Modifier
@@ -308,6 +328,86 @@ private fun BotArkRoot(
             onSwitchToQR = { showScanner = true },
             onDismiss = { pendingWebPlatform = null }
         )
+    }
+
+    if (showSync && !showScanner && !showAddHermes && !showAddPicker && pendingWebPlatform == null) {
+        BackHandler { showSync = false }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(palette.canvas)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            SyncSettingsScreen(
+                state = state,
+                onOpenScanner = { showScanner = true },
+                onReconnect = { viewModel.reconnectDesktop() },
+                onUnpair = { viewModel.unpairDesktop() },
+                onOpenAddHermes = { showAddHermes = true },
+                onImportBundle = { bytes, key -> viewModel.importOfflineBundle(bytes, key) },
+                onWipeAll = { viewModel.wipeAllLocalData() },
+                onFetchSubscription = { url -> viewModel.fetchSubscription(url) },
+                subscriptionSummary = state.subscriptionSummary,
+                onStartVpn = {
+                    val nodes = viewModel.loadVpnNodes()
+                    if (nodes.isEmpty()) {
+                        viewModel.onVpnError("没有可用的代理节点，请先扫码同步或拉取订阅")
+                    } else {
+                        com.qybaihe.botark.service.VpnNodeStore.put(nodes)
+                        context.startForegroundService(
+                            android.content.Intent(context, com.qybaihe.botark.service.BotArkVpnService::class.java)
+                        )
+                        viewModel.onVpnStarted(nodes)
+                    }
+                },
+                onStopVpn = { viewModel.stopVpnProxy(context) }
+            )
+            Text(
+                text = "关闭",
+                fontSize = 12.sp,
+                fontFamily = ArkSansFamily,
+                fontWeight = FontWeight.SemiBold,
+                color = palette.textPrimary,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 10.dp, end = 12.dp)
+                    .clip(CircleShape)
+                    .background(palette.subtleFill)
+                    .clickable { showSync = false }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
+        }
+    }
+
+    if (showApprovals && !showScanner && !showAddHermes && !showAddPicker && pendingWebPlatform == null) {
+        BackHandler { showApprovals = false }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(palette.canvas)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            ApprovalsScreen(
+                state = state,
+                onDecide = { item, dec -> viewModel.decideApproval(item, dec) }
+            )
+            Text(
+                text = "关闭",
+                fontSize = 12.sp,
+                fontFamily = ArkSansFamily,
+                fontWeight = FontWeight.SemiBold,
+                color = palette.textPrimary,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 10.dp, end = 12.dp)
+                    .clip(CircleShape)
+                    .background(palette.subtleFill)
+                    .clickable { showApprovals = false }
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
+        }
     }
 }
 

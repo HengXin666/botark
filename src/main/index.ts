@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, shell } from 'electron'
 import { attachWebViewManager, registerWebViewIpc } from './webViewIpc'
@@ -8,6 +8,7 @@ import { registerGrokIpc } from './grok/grokIpc'
 import { stopGrokAccountWatch } from './grok/grokWatchManager'
 import { registerHarkIpc } from './hark/harkIpc'
 import { cancelHarkWatch } from './hark/harkClient'
+import { unwatchAllHarkActivity } from './hark/harkActivityMonitor'
 import { unwatchAllHarkStatuses } from './hark/harkStatusMonitor'
 import { registerDotIpc } from './dot/dotIpc'
 import { closeCelsiusWatcher } from './dot/dotClient'
@@ -157,16 +158,27 @@ function createMainWindow(): BrowserWindow {
   })
 
   const wantGrokLogin = process.argv.includes('--open-grok-login')
+  const harkMarker = join(app.getPath('userData'), 'hark-pool-sync.json')
+  const wantHarkSync = process.argv.includes('--hark-pool-sync') || existsSync(harkMarker)
+  if (existsSync(harkMarker)) {
+    try {
+      unlinkSync(harkMarker)
+    } catch {
+      /* one-shot marker, best effort */
+    }
+  }
+  const query: Record<string, string> = {}
+  if (wantGrokLogin) query.openGrokLogin = '1'
+  if (wantHarkSync) query.harkPoolSync = '1'
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   if (!app.isPackaged && devUrl) {
-    const targetUrl = wantGrokLogin
-      ? `${devUrl}${devUrl.includes('?') ? '&' : '?'}openGrokLogin=1`
-      : devUrl
+    const search = new URLSearchParams(query).toString()
+    const targetUrl = search ? `${devUrl}${devUrl.includes('?') ? '&' : '?'}${search}` : devUrl
     void win.loadURL(targetUrl)
   } else {
     void win.loadFile(
       join(__dirname, '../renderer/index.html'),
-      wantGrokLogin ? { query: { openGrokLogin: '1' } } : undefined
+      Object.keys(query).length > 0 ? { query } : undefined
     )
   }
 
@@ -178,6 +190,7 @@ app.on('before-quit', () => {
   stopGrokAccountWatch('*')
   closeCelsiusWatcher('*')
   cancelHarkWatch('*')
+  unwatchAllHarkActivity()
   unwatchAllHarkStatuses()
   cancelAllHermesRuns('*')
   cancelAllAntigravityRuns('*')

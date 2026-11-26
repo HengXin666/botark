@@ -44,6 +44,10 @@ export class HarkAdapter implements PlatformAdapter {
   private readonly mainConversationId = new Map<string, string>()
   /** Hark conversations currently reported as `working` by the server. */
   private readonly workingConversations = new Map<string, Set<string>>()
+  /** Last real narration line, so status polling cannot overwrite it with "working". */
+  private readonly detailedActivity = new Map<string, { text: string; at: number }>()
+  /** When the account last reported idle, so a stale line is not reused for a new turn. */
+  private readonly lastIdleAt = new Map<string, number>()
   private bridgeUnsub: Unsubscribe | null = null
 
   constructor() {
@@ -79,18 +83,7 @@ export class HarkAdapter implements PlatformAdapter {
           isTyping: isWorking
         })
       }
-      this.emit({
-        type: 'activity',
-        accountId: event.accountId,
-        activity: {
-          code: working.size > 0 ? 'working' : 'idle',
-          text: working.size > 0 ? '正在工作…' : null,
-          emoji: null,
-          agentId: null,
-          subagents: 0,
-          busy: working.size > 0
-        }
-      })
+      this.emitWorkingFallback(event.accountId, working.size > 0)
       if (JSON.stringify(previous) !== JSON.stringify(next)) {
         this.emit({ type: 'harkStatus', accountId: event.accountId, statuses: next })
       }
@@ -102,18 +95,33 @@ export class HarkAdapter implements PlatformAdapter {
       return
     }
     if (event.type === 'activity') {
+      const text = event.activityText?.trim() || null
+      if (text && event.busy) {
+        this.detailedActivity.set(event.accountId, { text, at: Date.now() })
+        this.lastIdleAt.delete(event.accountId)
+      } else if (!event.busy) {
+        this.lastIdleAt.set(event.accountId, Date.now())
+      }
       this.emit({
         type: 'activity',
         accountId: event.accountId,
         activity: {
           code: event.activityCode,
-          text: event.activityText ?? null,
+          text,
           emoji: event.activityEmoji ?? null,
           agentId: null,
           subagents: 0,
           busy: event.busy
         }
       })
+      if (event.conversationId) {
+        this.emit({
+          type: 'typing',
+          conversationId: event.conversationId,
+          accountId: event.accountId,
+          isTyping: event.busy
+        })
+      }
       return
     }
     if (event.type === 'stream') {
@@ -147,18 +155,7 @@ export class HarkAdapter implements PlatformAdapter {
           isTyping: false
         })
         const stillWorking = (this.workingConversations.get(event.accountId)?.size ?? 0) > 0
-        this.emit({
-          type: 'activity',
-          accountId: event.accountId,
-          activity: {
-            code: stillWorking ? 'working' : 'idle',
-            text: stillWorking ? '正在工作…' : null,
-            emoji: null,
-            agentId: null,
-            subagents: 0,
-            busy: stillWorking
-          }
-        })
+        this.emitWorkingFallback(event.accountId, stillWorking)
         this.setStatus(event.accountId, this.statusAfterWork(event.accountId))
         if (event.text || event.tools?.length || event.media?.length || event.richWidgets?.length) {
           this.emit({
@@ -217,18 +214,78 @@ export class HarkAdapter implements PlatformAdapter {
     }
   }
 
+  /** Emit the generic status only when no real narration is available. */
+  private emitWorkingFallback(accountId: string, working: boolean): void {
+    if (!working) {
+      this.lastIdleAt.set(accountId, Date.now())
+      this.emit({
+        type: 'activity',
+        accountId,
+        activity: {
+          code: 'idle',
+          text: null,
+          emoji: null,
+          agentId: null,
+          subagents: 0,
+          busy: false
+        }
+      })
+      return
+    }
+    const detail = this.detailedActivity.get(accountId)
+    const idleAt = this.lastIdleAt.get(accountId)
+    // Reuse the last line across a brief working→idle→working bounce, but never
+    // carry it over to an unrelated turn that starts much later.
+    if (detail && (!idleAt || Date.now() - idleAt < 10_000)) {
+      // A status poll arriving between two narration frames must not replace the
+      // last real line with a generic "working" label.
+      this.emit({
+        type: 'activity',
+        accountId,
+        activity: {
+          code: 'working',
+          text: detail.text,
+          emoji: null,
+          agentId: null,
+          subagents: 0,
+          busy: true
+        }
+      })
+      return
+    }
+    this.emit({
+      type: 'activity',
+      accountId,
+      activity: {
+        code: 'working',
+        text: '正在工作…',
+        emoji: null,
+        agentId: null,
+        subagents: 0,
+        busy: true
+      }
+    })
+  }
+
   private setStatus(accountId: string, status: ConnectionStatus, detail?: string): void {
     this.statuses.set(accountId, status)
     this.emit({ type: 'status', accountId, status, detail })
   }
 
+  /**
+   * Background status watch for every signed-in Hark account. The main-process
+   * monitor keeps up to 10 opened/working accounts on its 5s live pool and
+   * leaves every other signed-in account on this 30s background watch.
+   */
+  private startStatusWatch(accountId: string, intervalMs = 30_000): void {
+    void invokeHarkRpc({ accountId, op: 'watchStatus', intervalMs, refreshTitles: false }).catch(
+      () => undefined
+    )
+  }
+
   /** A send may finish while another Hark conversation is still working. */
   private statusAfterWork(accountId: string): ConnectionStatus {
     return (this.workingConversations.get(accountId)?.size ?? 0) > 0 ? 'busy' : 'online'
-  }
-
-  private startStatusWatch(accountId: string): void {
-    void invokeHarkRpc({ accountId, op: 'watchStatus' }).catch(() => undefined)
   }
 
   private upsert(accountId: string, patch?: Partial<PlatformAccount>): void {
@@ -262,7 +319,9 @@ export class HarkAdapter implements PlatformAdapter {
         return 'offline'
       }
       this.upsert(accountId, { displayName: status.displayName, handle: status.handle })
-      await this.refreshMainConversation(accountId).catch(() => undefined)
+      // Keep monitoring every signed-in account. This registers the 30s
+      // background watch; the main-process status monitor promotes up to 10
+      // opened/working accounts to its 5s live pool.
       this.startStatusWatch(accountId)
       this.setStatus(accountId, this.statusAfterWork(accountId))
       return this.getStatus(accountId)
@@ -276,6 +335,8 @@ export class HarkAdapter implements PlatformAdapter {
   async disconnect(accountId: string): Promise<void> {
     await invokeHarkRpc({ accountId, op: 'unwatchStatus' }).catch(() => undefined)
     this.workingConversations.delete(accountId)
+    this.detailedActivity.delete(accountId)
+    this.lastIdleAt.delete(accountId)
     this.setStatus(accountId, 'offline')
   }
 
@@ -291,7 +352,6 @@ export class HarkAdapter implements PlatformAdapter {
       const status = await bridge.openLogin({ accountId })
       if (status.signedIn) {
         this.upsert(accountId, { displayName: status.displayName, handle: status.handle })
-        await this.refreshMainConversation(accountId).catch(() => undefined)
         this.startStatusWatch(accountId)
         this.setStatus(accountId, this.statusAfterWork(accountId))
         return this.getStatus(accountId)
@@ -432,18 +492,7 @@ export class HarkAdapter implements PlatformAdapter {
         isTyping: false
       })
       const stillWorking = (this.workingConversations.get(message.accountId)?.size ?? 0) > 0
-      this.emit({
-        type: 'activity',
-        accountId: message.accountId,
-        activity: {
-          code: stillWorking ? 'working' : 'idle',
-          text: stillWorking ? '正在工作…' : null,
-          emoji: null,
-          agentId: null,
-          subagents: 0,
-          busy: stillWorking
-        }
-      })
+      this.emitWorkingFallback(message.accountId, stillWorking)
 
       if (!polled?.reply) {
         console.info('[hark] reply pending; keeping accepted', message.accountId, conversationId)
@@ -494,18 +543,7 @@ export class HarkAdapter implements PlatformAdapter {
         isTyping: false
       })
       const stillWorking = (this.workingConversations.get(message.accountId)?.size ?? 0) > 0
-      this.emit({
-        type: 'activity',
-        accountId: message.accountId,
-        activity: {
-          code: stillWorking ? 'working' : 'idle',
-          text: stillWorking ? '正在工作…' : null,
-          emoji: null,
-          agentId: null,
-          subagents: 0,
-          busy: stillWorking
-        }
-      })
+      this.emitWorkingFallback(message.accountId, stillWorking)
       const detail = error instanceof Error ? error.message : String(error)
       // A send that timed out may have landed (harkFetch never retries writes):
       // treat it as accepted rather than inviting a duplicate send.

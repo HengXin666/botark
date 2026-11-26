@@ -42,6 +42,8 @@ export function MessageList({ bot, messages, accounts, typing, onRetry }: Messag
   const lastMessage = messages[messages.length - 1]
 
   // Jump to the bottom when switching bots; follow new messages when pinned.
+  // Do NOT depend on lastMessage.text here: one smooth scroll per streaming
+  // token repeatedly cancels itself and forces a layout on every token.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -50,7 +52,24 @@ export function MessageList({ bot, messages, accounts, typing, onRetry }: Messag
     if (switched || stickToBottom.current || lastMessage?.role === 'user') {
       el.scrollTo({ top: el.scrollHeight, behavior: switched ? 'instant' : 'smooth' })
     }
-  }, [bot.id, messages.length, lastMessage?.role, lastMessage?.text, typing])
+  }, [bot.id, messages.length, lastMessage?.role, typing])
+
+  // While text streams into the last bubble, follow it with a plain scrollTop
+  // update coalesced to one per animation frame; no smooth-scroll restarts and
+  // no synchronous layout reads inside React's render/commit path.
+  const followFrame = useRef<number | null>(null)
+  useEffect(() => {
+    if (!stickToBottom.current) return
+    if (followFrame.current !== null) return
+    followFrame.current = requestAnimationFrame(() => {
+      followFrame.current = null
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }, [lastMessage?.text])
+  useEffect(() => () => {
+    if (followFrame.current !== null) cancelAnimationFrame(followFrame.current)
+  }, [])
 
   // Scrolled up: offer a way back down, and count replies that arrive meanwhile.
   const [away, setAway] = useState(false)

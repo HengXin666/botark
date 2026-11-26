@@ -2,6 +2,12 @@ package com.qybaihe.botark.ui.components
 
 import android.graphics.BitmapFactory
 import android.util.Base64
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,11 +19,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -60,11 +69,15 @@ fun PlatformIcon(platform: PlatformId, size: Dp = 18.dp, modifier: Modifier = Mo
 fun BotAvatar(
     bot: SyncedBot,
     status: ConnectionStatus,
-    size: Dp = 40.dp
+    size: Dp = 40.dp,
+    isWorking: Boolean = false
 ) {
     val palette = ArkColors.current
     val shape = RoundedCornerShape(size * 0.32f)
     val decoded = remember(bot.avatar) { decodeBase64Image(bot.avatar) }
+    // The desktop renderer drives the character from isWorking OR a busy status; mirror that
+    // here so list rows animate even though BotListScreen does not pass isWorking explicitly.
+    val effectiveWorking = isWorking || bot.activityBusy || status == ConnectionStatus.BUSY
 
     Box(modifier = Modifier.size(size)) {
         Box(
@@ -82,37 +95,84 @@ fun BotAvatar(
                 )
                 .border(0.8.dp, palette.hairline, shape)
         ) {
-            when {
-                decoded != null -> Image(
+            if (decoded != null) {
+                // Custom user photo always wins over the generated character.
+                Image(
                     bitmap = decoded,
                     contentDescription = bot.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.size(size)
                 )
-                !bot.emoji.isNullOrEmpty() -> Text(
-                    text = bot.emoji,
-                    fontSize = (size.value * 0.45f).sp
-                )
-                else -> Image(
-                    painter = painterResource(bot.platformId.drawableRes()),
-                    contentDescription = bot.name,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .size(size)
-                        .padding(size * 0.18f)
+            } else {
+                // No emoji fallback: desktop never renders emoji, and Hark bots commonly store
+                // a placeholder "-" which used to appear as a stray dash in an empty tile.
+                BotMark(
+                    seed = bot.id,
+                    shape = bot.avatarShape,
+                    color = bot.avatarColor,
+                    status = status,
+                    isWorking = effectiveWorking,
+                    size = size
                 )
             }
         }
 
         val dotSize = (size * 0.22f).coerceAtLeast(8.5.dp)
-        Box(
+        BotStatusDot(
+            status = status,
+            dotSize = dotSize,
+            ringColor = palette.surface,
+            pulsing = effectiveWorking,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .offset(x = 1.5.dp, y = 1.5.dp)
+        )
+    }
+}
+
+@Composable
+private fun BotStatusDot(
+    status: ConnectionStatus,
+    dotSize: Dp,
+    ringColor: Color,
+    pulsing: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier.size(dotSize), contentAlignment = Alignment.Center) {
+        if (pulsing) {
+            val transition = rememberInfiniteTransition(label = "botStatusPulse")
+            val pulseScale by transition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.9f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 1400, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "botStatusPulseScale"
+            )
+            val pulseAlpha by transition.animateFloat(
+                initialValue = 0.42f,
+                targetValue = 0f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 1400, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "botStatusPulseAlpha"
+            )
+            Box(
+                modifier = Modifier
+                    .size(dotSize)
+                    .scale(pulseScale)
+                    .clip(CircleShape)
+                    .background(status.dotColor().copy(alpha = pulseAlpha))
+            )
+        }
+        Box(
+            modifier = Modifier
                 .size(dotSize)
                 .clip(CircleShape)
                 .background(status.dotColor())
-                .border(1.8.dp, palette.surface, CircleShape)
+                .border(1.8.dp, ringColor, CircleShape)
         )
     }
 }

@@ -2,6 +2,22 @@
 
 All notable changes to **BotArk** (formerly BotHub) are documented in this file.
 
+## [0.12.0] - 2026-11-25
+
+### Added
+- **Hark live working status**: the Linux desktop now keeps the Hark conversation sync stream open for the active project and renders the real narration (for example `检查服务连接状态。`) in the chat status bubble, chat header and sidebar, instead of only the generic `正在工作…`. The same watch is restored automatically when a Hark project chat is resumed after a relaunch.
+- **Android reuses the Linux renderer**: the phone workspace now runs the same React renderer bundle as the Linux desktop inside a WebView. A single-column mobile shell reuses the existing bot list, message bubbles, markdown, tool cards, approvals, Hark project page and animated `GrokBotMark` avatars; a native JS bridge supplies pairing, sync, Hark/Hermes direct sessions and proxy state. Native Compose keeps only onboarding, QR pairing, sync settings and dialogs.
+- **Hark multi-project mode on Android**: the shared Hark project page now has full phone support for multiple projects: recency ordering, a dedicated working section, unread/completed/not-started badges, project search, create/open/delete with native confirmation, cached-status fallback, live status polling, active-project title in the chat header and automatic resume only when exactly one project is working. Native create/delete operations mirror the project list back into the phone snapshot so a later state push cannot resurrect or drop a project. Dedicated tests cover multi-project parsing and recency ordering, cached versus live status, and the single-working-project auto-open rule.
+- **Quota usage dashboard (Linux + Android)**: a new shared `额度统计` page charts locally sampled quota data as a multi-series line chart and a Codex/Magpie-style **53-week calendar heatmap**. The calendar is Monday-first, colours each day by its highest sampled quota usage (five levels, empty days left blank), supports horizontal scrolling on phones and shows a per-day tooltip. It collects Muse subscription/top-up usage, Hark daily/pool token meters, and Dot 5-hour/weekly rate limits where the running shell exposes them, persists up to 400 days in local storage, supports 7/14/30-day trend ranges, per-series legend toggles and history clearing. The page is reachable from the desktop sidebar, command palette, and the mobile home header; Android's native Hark bridge now exposes `/billing/summary` for the same view. Shared aggregation, calendar bucketing and provider parsers have dedicated tests.
+- **Animated Android bot avatars**: the native fallback avatar now renders the full 26-shape, 11-colour `BotMark` character (gradient body, blinking eyes, working bob and orbit dots) instead of a static platform icon, matching the desktop `GrokBotMark` defaults for every bot.
+
+### Fixed
+- **Hark multi-account live monitoring**: every signed-in Hark account keeps a 30s background status watcher; up to 10 opened/working accounts are promoted to a 5s live pool and pinned there until their task completes. Switching away no longer stops the previous account's watcher, and Android now runs one independent poll loop per Hark account with at least 10 concurrent requests instead of waiting on four-account batches.
+- **Hark working status dropped**: Hark sends narration as `{ line, lineArgs, visible, working, … }` objects; the previous parser only accepted strings, so real status lines were silently discarded. Both snapshot and incremental patches are now normalized, and status-only patches no longer erase the last visible line.
+- **Android avatar placeholder dash**: Hark bots are stored with the placeholder emoji `-`; the native avatar used to draw that hyphen as text. The emoji branch is gone, so every bot shows its generated character and the working animation again.
+- **Android agent interaction parity**: message sending, stop, new session, inline approvals, Hark project browsing and artifact downloads now go through the native bridge instead of the divergent Compose chat state machine.
+- **Android post-pairing white screen**: the shared mobile shell now anchors to the real WebView bounds instead of `100vh`/`100dvh`; Android WebView can report those units as `0px`, which previously collapsed the workspace and left a blank screen after QR pairing.
+
 ## [0.11.0] - 2026-11-24
 
 ### Added

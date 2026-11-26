@@ -266,7 +266,7 @@ export interface MuseOptionWidgetView {
 }
 
 
-export type MuseProxyMode = 'direct' | 'http' | 'socks5' | 'socks5h'
+export type MuseProxyMode = 'direct' | 'http' | 'https' | 'socks5' | 'socks5h'
 
 /** Renderer-safe proxy view (password never returned). */
 export interface MuseProxyView {
@@ -922,6 +922,8 @@ export type HarkMainEvent =
   | {
       type: 'activity'
       accountId: string
+      /** Actual Hark conversation the activity belongs to, for scoped typing/status. */
+      conversationId?: string
       activityCode: string
       activityText?: string
       activityEmoji?: string
@@ -955,8 +957,10 @@ export type HarkRpcRequest =
   | { accountId: string; op: 'conversationMessages'; conversationId: string }
   | { accountId: string; op: 'createProject'; title?: string; timezone?: string }
   | { accountId: string; op: 'cancelReply'; conversationId: string }
-  | { accountId: string; op: 'watchStatus' }
+  | { accountId: string; op: 'watchStatus'; intervalMs?: number; refreshTitles?: boolean; allowDowngrade?: boolean; hot?: boolean }
   | { accountId: string; op: 'unwatchStatus' }
+  | { accountId: string; op: 'watchConversation'; conversationId: string }
+  | { accountId: string; op: 'unwatchConversation'; conversationId?: string }
   | {
       accountId: string
       op: 'sendMessage'

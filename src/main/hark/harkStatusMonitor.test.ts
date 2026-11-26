@@ -29,7 +29,10 @@ vi.mock('./harkClient', () => ({
 }))
 
 import {
+  getHarkWatchDiagnostics,
+  HARK_LIVE_WATCH_LIMIT,
   onHarkStatusEvent,
+  touchHarkStatuses,
   unwatchAllHarkStatuses,
   watchHarkStatuses,
   type HarkConversationStatusEvent
@@ -80,5 +83,52 @@ describe('Hark status monitor', () => {
     watchHarkStatuses('acc-status-baseline')
     await vi.advanceTimersByTimeAsync(5_000)
     expect(hoisted.notifications).toHaveLength(0)
+  })
+
+  it('keeps ten accounts live and leaves the rest on the background interval', async () => {
+    hoisted.list.mockResolvedValue({ conversations: [] })
+    hoisted.statuses.mockResolvedValue({ statuses: {} })
+    const total = HARK_LIVE_WATCH_LIMIT + 2
+    for (let index = 0; index < total; index += 1) {
+      watchHarkStatuses(`acc-live-${index}`, { hot: true, refreshTitles: false })
+    }
+    await vi.advanceTimersByTimeAsync(0)
+
+    const diagnostics = getHarkWatchDiagnostics()
+    expect(diagnostics.filter((watch) => watch.hot)).toHaveLength(HARK_LIVE_WATCH_LIMIT)
+    expect(diagnostics.filter((watch) => !watch.hot && watch.intervalMs === 30_000)).toHaveLength(2)
+
+    // The live accounts must all poll again after one 5s tick; the two
+    // background accounts stay parked until their 30s timer.
+    hoisted.statuses.mockClear()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(hoisted.statuses).toHaveBeenCalledTimes(HARK_LIVE_WATCH_LIMIT)
+  })
+
+  it('never evicts a working account and releases it only after completion', async () => {
+    hoisted.list.mockResolvedValue({ conversations: [] })
+    hoisted.statuses.mockImplementation(async (accountId: string) => ({
+      statuses: accountId === 'acc-working' ? { p1: 'working' } : {}
+    }))
+    watchHarkStatuses('acc-working', { hot: true, refreshTitles: false })
+    await vi.advanceTimersByTimeAsync(0)
+
+    for (let index = 0; index < HARK_LIVE_WATCH_LIMIT + 1; index += 1) {
+      watchHarkStatuses(`acc-newer-${index}`, { hot: true, refreshTitles: false })
+    }
+    await vi.advanceTimersByTimeAsync(0)
+
+    const whileWorking = getHarkWatchDiagnostics()
+    expect(whileWorking.find((watch) => watch.accountId === 'acc-working')?.hot).toBe(true)
+    expect(whileWorking.filter((watch) => watch.hot)).toHaveLength(HARK_LIVE_WATCH_LIMIT)
+
+    // Task finished: the account is now idle and may yield its slot.
+    hoisted.statuses.mockResolvedValue({ statuses: {} })
+    await vi.advanceTimersByTimeAsync(5_000)
+    touchHarkStatuses('acc-just-opened')
+    const afterCompletion = getHarkWatchDiagnostics()
+    expect(afterCompletion.find((watch) => watch.accountId === 'acc-working')?.working).toBe(false)
+    expect(afterCompletion.find((watch) => watch.accountId === 'acc-working')?.hot).toBe(false)
+    expect(afterCompletion.filter((watch) => watch.hot)).toHaveLength(HARK_LIVE_WATCH_LIMIT)
   })
 })

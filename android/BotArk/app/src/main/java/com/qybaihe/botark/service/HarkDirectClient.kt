@@ -32,7 +32,6 @@ import java.time.Instant
 import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 class HarkDirectException(message: String, val status: Int = 0) : Exception(message)
@@ -54,7 +53,6 @@ data class HarkSendResult(
 class HarkDirectClient {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val jsonMedia = "application/json; charset=utf-8".toMediaType()
-    private val mediaCache = ConcurrentHashMap<String, String>()
     private var cachedClient: OkHttpClient? = null
     private var cachedProxyState: Boolean? = null
 
@@ -221,7 +219,7 @@ class HarkDirectClient {
         }
         val out = mutableListOf<SyncedMessage>()
         for (raw in state.messages()) {
-            rawToMessage(raw, botId, accountId, cred)?.let { out.add(it) }
+            rawToMessage(raw, botId, accountId)?.let { out.add(it) }
         }
         out
     }
@@ -289,6 +287,26 @@ class HarkDirectClient {
             delay(2_000)
         }
         last
+    }
+
+    suspend fun billingSummary(cred: HarkCredential): JsonElement? = withContext(Dispatchers.IO) {
+        request(cred, "GET", "/billing/summary")
+    }
+
+    suspend fun linkConnectorSession(
+        cred: HarkCredential,
+        provider: String,
+        returnUrl: String,
+        origin: String = "chat"
+    ): JsonElement? = withContext(Dispatchers.IO) {
+        request(
+            cred, "POST", "/connectors/link-sessions",
+            body = buildJsonObject {
+                put("provider", provider)
+                put("returnUrl", returnUrl)
+                put("origin", origin)
+            }
+        )
     }
 
     suspend fun pauseAgent(cred: HarkCredential, conversationId: String) = withContext(Dispatchers.IO) {
@@ -607,11 +625,10 @@ class HarkDirectClient {
             (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
         }
 
-    private suspend fun rawToMessage(
+    private fun rawToMessage(
         raw: JsonObject,
         botId: String,
-        accountId: String,
-        cred: HarkCredential
+        accountId: String
     ): SyncedMessage? {
         val rawId = raw.string("id") ?: return null
         val role = raw.string("role") ?: raw.string("author") ?: "assistant"
@@ -646,25 +663,21 @@ class HarkDirectClient {
                 (item as? JsonObject)?.let { addAll(artifactsFromRaw(it)) }
             }
         }
+        // Keep only the stable Hark reference here. The WebView resolves the
+        // bytes lazily through the native downloadArtifact bridge when the
+        // message is actually displayed; embedding base64 here turns a chat
+        // snapshot into tens of megabytes and freezes the Android WebView.
         val media = artifactRefs
             .distinctBy { it.s3Key ?: it.downloadUrl ?: it.path }
             .mapNotNull { artifact ->
-            val cacheKey = artifact.s3Key ?: artifact.downloadUrl ?: artifact.path ?: return@mapNotNull null
-            val dataUrl = mediaCache[cacheKey] ?: downloadArtifact(
-                cred,
-                url = artifact.downloadUrl,
-                fileId = artifact.s3Key ?: artifact.path?.takeIf {
-                    !it.startsWith("http://", ignoreCase = true) && !it.startsWith("https://", ignoreCase = true)
-                },
-                name = artifact.name
-            )?.also { mediaCache[cacheKey] = it }
-            if (dataUrl == null) null else SyncedMediaPart(
-                kind = if (artifact.mimeType.startsWith("image/", ignoreCase = true)) "image" else "file",
-                path = dataUrl,
-                name = artifact.name,
-                mimeType = artifact.mimeType
-            )
-        }
+                val path = artifact.s3Key ?: artifact.downloadUrl ?: artifact.path ?: return@mapNotNull null
+                SyncedMediaPart(
+                    kind = if (artifact.mimeType.startsWith("image/", ignoreCase = true)) "image" else "file",
+                    path = path,
+                    name = artifact.name,
+                    mimeType = artifact.mimeType
+                )
+            }
 
         if (text.isBlank() && tools.isEmpty() && media.isEmpty()) return null
         val createdAt = raw["createdAt"]?.let { element ->

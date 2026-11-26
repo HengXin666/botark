@@ -14,9 +14,6 @@ const MAX_MESSAGES_PER_BOT = 60
 
 const latestApprovals: Record<string, HermesApprovalView[]> = {}
 
-/** Cache Hark artifact downloads by account + path so snapshots do not refetch images. */
-const harkMediaCache = new Map<string, string>()
-
 function buildWorkspaceSnapshot(): MobileWorkspaceSnapshot {
   const s = useBotStore.getState()
   const accounts: Record<string, MobileSyncedAccount> = {}
@@ -91,7 +88,10 @@ function buildWorkspaceSnapshot(): MobileWorkspaceSnapshot {
       delivery: m.delivery,
       error: m.error,
       tools: m.tools,
-      media: m.media
+      // Never ship inline base64 through the Android WebView bridge. Large
+      // Hark screenshots make the snapshot tens of megabytes; the WebView
+      // resolves harkatt references lazily through the native bridge.
+      media: m.media?.filter((part) => !/^data:/i.test(part.path || ''))
     }))
   }
 
@@ -106,69 +106,6 @@ function buildWorkspaceSnapshot(): MobileWorkspaceSnapshot {
     messages,
     approvals: { ...latestApprovals }
   }
-}
-
-/**
- * Hark artifacts arrive as harkatt:// references or signed URLs. Android has
- * no Hark session/cookies, so resolve image bytes here once and send a data URL
- * in the mobile snapshot. The desktop already owns the account proxy session.
- */
-async function resolveHarkMediaForSnapshot(
-  snapshot: MobileWorkspaceSnapshot
-): Promise<MobileWorkspaceSnapshot> {
-  const harkBotIds = new Set(
-    snapshot.bots.filter((bot) => bot.platformId === 'hark').map((bot) => bot.id)
-  )
-  if (harkBotIds.size === 0) return snapshot
-
-  let changed = false
-  const messages: Record<string, MobileSyncedMessage[]> = {}
-  for (const [botId, list] of Object.entries(snapshot.messages)) {
-    if (!harkBotIds.has(botId)) {
-      messages[botId] = list
-      continue
-    }
-    messages[botId] = await Promise.all(
-      list.map(async (message) => {
-        if (!message.media?.length) return message
-        let messageChanged = false
-        const media = await Promise.all(
-          message.media.map(async (part) => {
-            if (part.kind !== 'image' || /^data:image\//i.test(part.path)) return part
-            const accountId = message.accountId
-            if (!accountId || !part.path.trim()) return part
-            const key = accountId + ':' + part.path
-            let dataUrl = harkMediaCache.get(key)
-            if (!dataUrl) {
-              const hark = getBridge()?.hark
-              if (!hark?.rpc) return part
-              const cleanRef = part.path.trim().replace(/^(harkatt|harkfile):\/\//i, '')
-              const result = await hark
-                .rpc({
-                  accountId,
-                  op: 'downloadArtifact',
-                  url: /^https?:\/\//i.test(cleanRef) ? cleanRef : undefined,
-                  fileId: !/^https?:\/\//i.test(cleanRef) ? cleanRef : undefined,
-                  name: part.name
-                })
-                .catch(() => null)
-              if (!result?.ok || !result.data || typeof result.data !== 'object') return part
-              const data = result.data as { dataBase64?: string; mimeType?: string }
-              if (!data.dataBase64) return part
-              const mime = data.mimeType || part.mimeType || 'image/png'
-              dataUrl = `data:${mime};base64,${data.dataBase64}`
-              harkMediaCache.set(key, dataUrl)
-            }
-            messageChanged = true
-            return { ...part, path: dataUrl }
-          })
-        )
-        return messageChanged ? { ...message, media } : message
-      })
-    )
-    if (messages[botId].some((message, index) => message !== list[index])) changed = true
-  }
-  return changed ? { ...snapshot, messages } : snapshot
 }
 
 function botIdForEvent(idOrAccount: string): string {
@@ -188,13 +125,7 @@ export function startMobileSyncBridge(): () => void {
 
   let timer: ReturnType<typeof setTimeout> | null = null
   const pushSnapshot = () => {
-    const snapshot = buildWorkspaceSnapshot()
-    mobileSync.pushSnapshot(snapshot)
-    void resolveHarkMediaForSnapshot(snapshot)
-      .then((resolved) => {
-        if (resolved !== snapshot) mobileSync.pushSnapshot(resolved)
-      })
-      .catch(() => undefined)
+    mobileSync.pushSnapshot(buildWorkspaceSnapshot())
   }
   const scheduleSnapshotPush = () => {
     if (timer) clearTimeout(timer)

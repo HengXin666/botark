@@ -252,6 +252,7 @@ export const ZH: Record<string, string> = {
   "BotArk-local egress for this Muse account (login + Noise). Not a Muse server setting.": "仅 BotArk 本机出口（登录与 Noise）。不是 Muse 服务端设置。",
   "Direct (no proxy)": "直连（无代理）",
   "HTTP proxy": "HTTP 代理",
+  "HTTPS proxy": "HTTPS 代理",
   "SOCKS5": "SOCKS5",
   "SOCKS5H (remote DNS)": "SOCKS5H（远程 DNS）",
   "Mode": "模式",

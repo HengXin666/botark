@@ -24,6 +24,8 @@ interface ComposerProps {
   onAntigravityLogin?: (accountId: string) => void
   /** The empty conversation already shows its own sign-in action. */
   hideNotice?: boolean
+  /** Android shell sends text through a native command; file attachments are not bridged yet. */
+  hideAttachments?: boolean
 }
 
 const MAX_HEIGHT_PX = 200
@@ -194,7 +196,7 @@ function ConnectionNotice({
   )
 }
 
-export function Composer({ bot, account, typing = false, onSend, onCancel, onConnect, onMuseLogin, onGrokLogin, onHarkLogin, onDotLogin, onAntigravityLogin, hideNotice = false }: ComposerProps) {
+export function Composer({ bot, account, typing = false, onSend, onCancel, onConnect, onMuseLogin, onGrokLogin, onHarkLogin, onDotLogin, onAntigravityLogin, hideNotice = false, hideAttachments = false }: ComposerProps) {
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<AttachmentMeta[]>([])
   const [dragging, setDragging] = useState(false)
@@ -365,19 +367,23 @@ export function Composer({ bot, account, typing = false, onSend, onCancel, onCon
           )}
 
           <div className="flex items-end gap-1">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              hidden
-              onChange={(event) => {
-                addFiles(event.target.files)
-                event.target.value = ''
-              }}
-            />
-            <IconButton label={t('Attach files')} onClick={() => fileInputRef.current?.click()}>
-              <Plus />
-            </IconButton>
+            {!hideAttachments && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(event) => {
+                    addFiles(event.target.files)
+                    event.target.value = ''
+                  }}
+                />
+                <IconButton label={t('Attach files')} onClick={() => fileInputRef.current?.click()}>
+                  <Plus />
+                </IconButton>
+              </>
+            )}
             <textarea
               ref={textareaRef}
               value={text}

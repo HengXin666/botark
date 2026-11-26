@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { createJSONStorage, persist } from 'zustand/middleware'
+import { persist, type PersistStorage, type StorageValue } from 'zustand/middleware'
 import { getPlatform } from '@adapters/platforms'
 import { adapterRegistry } from '@adapters/registry'
 import { AdapterError, type AttachmentMeta, type ConnectionStatus, type IncomingMessage, type PlatformId } from '@adapters/types'
@@ -10,22 +10,93 @@ import { parseHarkConversations, parseHarkStatuses, type HarkProjectSummary } fr
 import { clearNoReplyFlag, createSafeStorage, sanitizePersisted, SEND_HARD_TIMEOUT_MS, SendTimeoutError, toPersistedMessages, withTimeout, deliveryAfterError, createInFlightSet, hasLostAttachments, ATTACHMENTS_LOST_TEXT } from './delivery'
 
 let warnedStorage = false
-const workspaceStorage = createJSONStorage(() =>
-  createSafeStorage(
-    () => (typeof localStorage === 'undefined' ? undefined : localStorage),
-    (error) => {
-      if (warnedStorage) return
-      warnedStorage = true
-      console.warn('[bothub] could not save workspace:', error instanceof Error ? error.name : 'error')
-    }
-  )
+const workspaceBacking = createSafeStorage(
+  () => (typeof localStorage === 'undefined' ? undefined : localStorage),
+  (error) => {
+    if (warnedStorage) return
+    warnedStorage = true
+    console.warn('[bothub] could not save workspace:', error instanceof Error ? error.name : 'error')
+  }
 )
+
+/**
+ * Persist the workspace at most twice a second. zustand's createJSONStorage
+ * stringifies on every set(), which means every streaming token paid a full
+ * JSON.stringify + localStorage.setItem (the workspace is ~800KB). Debounce
+ * first, then stringify, so a token burst produces one write instead of one
+ * per token; flush on hide/unload so nothing is lost when the window closes.
+ */
+function createWorkspaceStorage(): PersistStorage<Record<string, unknown>> {
+  const WRITE_DELAY_MS = 500
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let pending: { name: string; value: StorageValue<Record<string, unknown>> } | null = null
+
+  const flush = (): void => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+    if (!pending) return
+    const { name, value } = pending
+    pending = null
+    const state = (value.state ?? {}) as Record<string, unknown>
+    const messages = (state.messages ?? {}) as Record<string, ChatMessage[]>
+    workspaceBacking.setItem(
+      name,
+      JSON.stringify({
+        ...value,
+        state: { ...state, messages: toPersistedMessages(messages) }
+      })
+    )
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flush()
+    })
+  }
+
+  return {
+    getItem: (name) => {
+      const raw = workspaceBacking.getItem(name)
+      if (!raw) return null
+      try {
+        return JSON.parse(raw) as StorageValue<Record<string, unknown>>
+      } catch {
+        return null
+      }
+    },
+    setItem: (name, value) => {
+      pending = { name, value }
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(flush, WRITE_DELAY_MS)
+    },
+    removeItem: (name) => {
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+      pending = null
+      workspaceBacking.removeItem(name)
+    }
+  }
+}
+
+const workspaceStorage = createWorkspaceStorage()
 
 const NO_REPLY_TEXT = '已送达，但没有收到回复'
 
 function electronBridge() {
   if (typeof window === 'undefined') return undefined
   return window.electron
+}
+
+/** Native Android WebView host (see src/renderer/src/lib/androidBridge.ts). */
+function androidBridge() {
+  if (typeof window === 'undefined') return undefined
+  return window.BotArkNative
 }
 
 export interface BotHubState {
@@ -60,6 +131,8 @@ export interface BotHubState {
   webSessionOpen: boolean
   /** Open the dedicated Grok Bot-style Settings view in the main pane. */
   settingsOpen: boolean
+  /** Open the quota usage dashboard (shared by desktop and mobile). */
+  quotaStatsOpen: boolean
   settingsTab:
     | 'overview'
     | 'general'
@@ -101,6 +174,7 @@ export interface BotHubState {
   setAddBotOpen: (open: boolean, initialPlatform?: PlatformId | null) => void
   setOnboardingOpen: (open: boolean) => void
   toggleWebSession: () => void
+  setQuotaStatsOpen: (open: boolean) => void
   setSettingsOpen: (
     open: boolean,
     tab?:
@@ -596,6 +670,7 @@ export const useBotStore = create<BotHubState>()(
     paletteKey: 0,
     webSessionOpen: false,
     settingsOpen: false,
+    quotaStatsOpen: false,
     settingsTab: 'overview',
     activeDocument: null,
     replyingTo: {},
@@ -624,9 +699,10 @@ export const useBotStore = create<BotHubState>()(
         return { messages: { ...state.messages, [botId]: nextList } }
       }),
 
-    selectBot: (botId) =>
+    selectBot: (botId) => {
+      const before = get()
+      const targetBot = before.bots.find((b) => b.id === botId)
       set((state) => {
-        const targetBot = state.bots.find((b) => b.id === botId)
         let nextAccounts = state.accounts
         if (targetBot) {
           for (const accId of targetBot.accountIds) {
@@ -642,6 +718,7 @@ export const useBotStore = create<BotHubState>()(
         return {
           selectedBotId: botId,
           settingsOpen: false,
+          quotaStatsOpen: false,
           activeDocument:
             state.activeDocument && targetBot?.accountIds.includes(state.activeDocument.accountId)
               ? state.activeDocument
@@ -649,7 +726,28 @@ export const useBotStore = create<BotHubState>()(
           accounts: nextAccounts,
           bots: state.bots.map((b) => (b.id === botId && b.unread > 0 ? { ...b, unread: 0 } : b))
         }
-      }),
+      })
+      const harkRpc = electronBridge()?.hark?.rpc
+      if (targetBot?.platformId === 'hark') {
+        const accountId = targetBot.activeAccountId ?? targetBot.accountIds[0]
+        if (accountId) {
+          // Re-hydrate the selected Hark bot only (connect is cheap now that
+          // HarkAdapter no longer fetches every account's main conversation).
+          void get().connectAccount(accountId)
+          if (harkRpc) {
+            // Opening an account puts it in the 10-slot live pool. The previous
+            // account is deliberately NOT downgraded or unwatched here: it stays
+            // live until its task completes and a newer account needs the slot.
+            void harkRpc({
+              accountId,
+              op: 'watchStatus',
+              hot: true,
+              refreshTitles: true
+            }).catch(() => undefined)
+          }
+        }
+      }
+    },
 
     toggleGroup: (groupId) =>
       set((state) => ({
@@ -748,9 +846,15 @@ export const useBotStore = create<BotHubState>()(
 
     toggleWebSession: () => set((state) => ({ webSessionOpen: !state.webSessionOpen })),
 
+    setQuotaStatsOpen: (open) =>
+      set({
+        quotaStatsOpen: open,
+        ...(open ? { settingsOpen: false, infoPanelOpen: false } : {})
+      }),
     setSettingsOpen: (open, tab) =>
       set((state) => ({
         settingsOpen: open,
+        ...(open ? { quotaStatsOpen: false } : {}),
         settingsTab: tab ?? state.settingsTab
       })),
 
@@ -909,6 +1013,14 @@ export const useBotStore = create<BotHubState>()(
     },
 
     sendMessage: async (botId, text, attachments) => {
+      // Android shell: the native viewmodel owns message delivery and pushes
+      // the resulting snapshot back through androidBridge; adding an optimistic
+      // bubble here would duplicate the user message.
+      const native = androidBridge()
+      if (native && !attachments?.length) {
+        native.command('send', JSON.stringify({ botId, text: text.trim() }))
+        return
+      }
       const stateBefore = get()
       const bot = stateBefore.bots.find((b) => b.id === botId)
       const trimmed = text.trim()
@@ -1242,6 +1354,13 @@ export const useBotStore = create<BotHubState>()(
     cancelGeneration: async (botId) => {
       const bot = get().bots.find((b) => b.id === botId)
       if (!bot) return
+      const native = androidBridge()
+      if (native) {
+        native.command('stop', JSON.stringify({ botId }))
+        get().setTyping(botId, false)
+        get().setActivity(bot.activeAccountId, null)
+        return
+      }
       get().setTyping(botId, false)
       get().setActivity(bot.activeAccountId, null)
       get().setAccountStatus(bot.activeAccountId, 'online')
@@ -1332,6 +1451,13 @@ export const useBotStore = create<BotHubState>()(
     startNewMuseSession: async (botId) => {
       const bot = get().bots.find((b) => b.id === botId)
       if (!bot || bot.platformId !== 'meta-muse') return
+      const native = androidBridge()
+      if (native) {
+        native.command('newSession', JSON.stringify({ botId }))
+        patchBot(botId, () => ({ activeSessionId: undefined }))
+        set((s) => ({ messages: { ...s.messages, [botId]: [] } }))
+        return
+      }
       const bridge = electronBridge()
       let newSessionId: string | undefined
       if (bridge?.muse?.startSession) {
@@ -1387,6 +1513,13 @@ export const useBotStore = create<BotHubState>()(
     startNewHermesSession: async (botId) => {
       const bot = get().bots.find((b) => b.id === botId)
       if (!bot || bot.platformId !== 'hermes') return
+      const native = androidBridge()
+      if (native) {
+        native.command('newSession', JSON.stringify({ botId }))
+        patchBot(botId, () => ({ activeSessionId: undefined }))
+        set((s) => ({ messages: { ...s.messages, [botId]: [] } }))
+        return
+      }
       const bridge = electronBridge()
       let newSessionId: string | undefined
       if (bridge?.hermes?.rpc) {
@@ -1452,6 +1585,10 @@ export const useBotStore = create<BotHubState>()(
     startNewAntigravitySession: (botId) => {
       const bot = get().bots.find((b) => b.id === botId)
       if (!bot || bot.platformId !== 'antigravity') return
+      const native = androidBridge()
+      if (native) {
+        native.command('newSession', JSON.stringify({ botId }))
+      }
       patchBot(botId, () => ({ activeSessionId: undefined }))
       set((s) => ({
         messages: { ...s.messages, [botId]: [] }
@@ -1464,7 +1601,7 @@ export const useBotStore = create<BotHubState>()(
       const bridge = electronBridge()
       const previousSessionId = bot.activeSessionId
       if (previousSessionId && previousSessionId !== conversationId) {
-        // Do not let an in-flight reply from the old project land in the new chat.
+        // Do not let an in-flight reply or the old project's narration land in the new chat.
         void bridge?.hark
           ?.rpc({
             accountId: bot.activeAccountId,
@@ -1472,8 +1609,18 @@ export const useBotStore = create<BotHubState>()(
             conversationId: previousSessionId
           })
           .catch(() => undefined)
+        void bridge?.hark
+          ?.rpc({
+            accountId: bot.activeAccountId,
+            op: 'unwatchConversation',
+            conversationId: previousSessionId
+          })
+          .catch(() => undefined)
+        get().setActivity(bot.activeAccountId, null)
       }
       let hydrated: ChatMessage[] = []
+      let snapshotActivity = ''
+      let snapshotWorking = false
       if (bridge?.hark?.rpc) {
         const res = await bridge.hark.rpc({
           accountId: bot.activeAccountId,
@@ -1481,8 +1628,16 @@ export const useBotStore = create<BotHubState>()(
           conversationId
         })
         if (!res.ok) throw new Error(res.message || '加载 Hark 项目失败')
-        const data = res.data as { messages?: HarkSnapshotRow[]; loaded?: boolean }
+        const data = res.data as {
+          messages?: HarkSnapshotRow[]
+          loaded?: boolean
+          activeActivity?: string | null
+          narration?: string | null
+          working?: boolean
+        }
         if (data?.loaded === false) throw new Error('加载 Hark 项目失败：无法读取会话快照')
+        snapshotActivity = String(data?.narration ?? data?.activeActivity ?? '').trim()
+        snapshotWorking = Boolean(data?.working || snapshotActivity)
         hydrated = harkRowsToMessages(bot.activeAccountId, botId, data?.messages ?? [], conversationId)
         void bridge.hark
           .rpc({
@@ -1495,10 +1650,24 @@ export const useBotStore = create<BotHubState>()(
       }
       set((s) => {
         const typing = { ...s.typing }
-        delete typing[botId]
+        if (snapshotWorking) typing[botId] = true
+        else delete typing[botId]
+        const activity = { ...s.activity }
+        if (snapshotActivity) {
+          activity[bot.activeAccountId] = {
+            code: 'working',
+            text: snapshotActivity,
+            emoji: null,
+            busy: true,
+            subagents: 0
+          }
+        } else if (!snapshotWorking) {
+          delete activity[bot.activeAccountId]
+        }
         return {
           messages: { ...s.messages, [botId]: hydrated },
-          typing
+          typing,
+          activity
         }
       })
       patchBot(botId, () => ({
@@ -1507,12 +1676,42 @@ export const useBotStore = create<BotHubState>()(
         activeSessionKind: kind,
         harkProjectsOpen: false
       }))
+      const native = androidBridge()
+      if (native) {
+        native.command(
+          'selectHarkConversation',
+          JSON.stringify({ botId, sessionId: conversationId, title, kind })
+        )
+      }
+      if (bridge?.hark?.rpc) {
+        // Keep the conversation sync stream open so narration keeps updating while
+        // the user watches this project, not only while a send is in flight.
+        void bridge.hark
+          .rpc({ accountId: bot.activeAccountId, op: 'watchConversation', conversationId })
+          .catch(() => undefined)
+      }
     },
 
     showHarkProjects: (botId) => {
       const bot = get().bots.find((b) => b.id === botId)
       if (!bot || bot.platformId !== 'hark') return
+      if (bot.activeSessionId) {
+        void electronBridge()
+          ?.hark?.rpc({
+            accountId: bot.activeAccountId,
+            op: 'unwatchConversation',
+            conversationId: bot.activeSessionId
+          })
+          .catch(() => undefined)
+      }
+      get().setActivity(bot.activeAccountId, null)
+      set((s) => {
+        const typing = { ...s.typing }
+        delete typing[botId]
+        return { typing }
+      })
       patchBot(botId, () => ({ harkProjectsOpen: true }))
+      androidBridge()?.command('showHarkProjects', JSON.stringify({ botId }))
     },
 
     setHarkProjectData: (botId, projects, statuses) =>
@@ -1522,8 +1721,10 @@ export const useBotStore = create<BotHubState>()(
         harkProjectsUpdatedAt: Date.now()
       })),
 
-    setHarkResumeLastConversation: (enabled) =>
-      set({ harkResumeLastConversation: enabled }),
+    setHarkResumeLastConversation: (enabled) => {
+      set({ harkResumeLastConversation: enabled })
+      androidBridge()?.command('setHarkResumeLast', JSON.stringify({ enabled }))
+    },
 
     refreshHarkProjects: async (botId) => {
       const bot = get().bots.find((b) => b.id === botId)
@@ -1561,6 +1762,16 @@ export const useBotStore = create<BotHubState>()(
         throw new Error(result.message || `删除项目失败（HTTP ${result.status}）`)
       }
       const deletingActive = bot.activeSessionId === conversationId
+      if (deletingActive) {
+        void bridge.hark
+          .rpc({
+            accountId: bot.activeAccountId,
+            op: 'unwatchConversation',
+            conversationId
+          })
+          .catch(() => undefined)
+        get().setActivity(bot.activeAccountId, null)
+      }
       set((state) => ({
         bots: state.bots.map((item) => {
           if (item.id !== botId) return item
@@ -1774,7 +1985,7 @@ export const useBotStore = create<BotHubState>()(
         } catch {
           /* ignore */
         }
-        patchAccount(accountId, { status: 'offline', statusDetail: 'Signed out', unread: 0 })
+        patchAccount(accountId, { status: 'offline', statusDetail: 'Signed out', unread: 0, manualOffline: true })
       } catch (error) {
         patchAccount(accountId, { statusDetail: errorMessage(error) })
       } finally {
@@ -1797,7 +2008,12 @@ export const useBotStore = create<BotHubState>()(
       const account = get().accounts[accountId]
       const adapter = account && adapterRegistry.get(account.platformId)
       if (!account || !adapter || account.pending) return
-      patchAccount(accountId, { pending: true })
+      const native = androidBridge()
+      if (native) {
+        native.command('reconnect', JSON.stringify({ accountId }))
+        return
+      }
+      patchAccount(accountId, { pending: true, manualOffline: false })
       try {
         const status = await adapter.connect(accountId)
         patchAccount(accountId, { status, statusDetail: undefined })
@@ -1806,7 +2022,9 @@ export const useBotStore = create<BotHubState>()(
           const ownerBot = get().bots.find((b) => b.accountIds.includes(accountId))
           // Project-list mode has no chat to hydrate; when a project chat is
           // restored, reload that exact conversation instead of the main one.
-          if (ownerBot && bridge?.hark?.rpc && ownerBot.harkProjectsOpen === false) {
+          // Only the selected bot needs its conversation at startup; hydrating
+          // all 80 Hark bots blocks the app and floods IPC.
+          if (ownerBot && ownerBot.id === get().selectedBotId && bridge?.hark?.rpc && ownerBot.harkProjectsOpen === false) {
             void bridge.hark
               .rpc(
                 ownerBot.activeSessionId
@@ -2353,7 +2571,7 @@ export const useBotStore = create<BotHubState>()(
       patchAccount(accountId, { pending: true })
       try {
         await adapter.disconnect(accountId)
-        patchAccount(accountId, { status: 'offline', statusDetail: undefined })
+        patchAccount(accountId, { status: 'offline', statusDetail: undefined, manualOffline: true })
       } catch (error) {
         patchAccount(accountId, { statusDetail: errorMessage(error) })
       } finally {
@@ -2400,6 +2618,9 @@ export const useBotStore = create<BotHubState>()(
   {
     name: 'bothub-workspace-v1',
     storage: workspaceStorage,
+    // Android shell hydrates from the native workspace snapshot; reusing a
+    // desktop browser's localStorage would show a second, stale workspace.
+    skipHydration: typeof window !== 'undefined' && Boolean(window.BotArkNative),
     // Nothing is in flight after a restart; drop stale `sending`/`pending`.
     merge: (persisted, current) => {
       const restored = sanitizePersisted((persisted ?? {}) as Partial<BotHubState>)
@@ -2426,7 +2647,8 @@ export const useBotStore = create<BotHubState>()(
       groups: state.groups,
       bots: state.bots,
       accounts: state.accounts,
-      messages: toPersistedMessages(state.messages),
+      // Keep raw messages here; the debounced storage trims them at write time.
+      messages: state.messages,
       selectedBotId: state.selectedBotId,
       collapsedGroups: state.collapsedGroups,
       dismissedGrokAgents: state.dismissedGrokAgents,

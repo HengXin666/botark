@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import type { AttachmentMeta, PlatformId } from '@adapters/types'
 import { PanelRight } from 'lucide-react'
 import { BotAvatar } from '@/components/ui/Avatar'
@@ -138,6 +138,34 @@ export function ChatArea() {
     (accountId: string) => void openAntigravityLogin(accountId),
     [openAntigravityLogin]
   )
+
+  // Restored sessions bypass openHarkConversation(), so the sync stream must be
+  // attached here too; otherwise a relaunch only shows the generic status poll.
+  const harkSessionId = bot?.platformId === 'hark' ? bot.activeSessionId : undefined
+  const harkAccountId = bot?.platformId === 'hark' ? bot.activeAccountId : undefined
+  const harkProjectsOpen = bot?.platformId === 'hark' ? bot.harkProjectsOpen : undefined
+  useEffect(() => {
+    if (!harkAccountId) return
+    const bridge = typeof window !== 'undefined' ? window.electron?.hark : undefined
+    if (!bridge?.rpc) return
+    // Opening a Hark bot puts it in the main-process live pool (up to 10
+    // accounts at 5s). The watcher is intentionally NOT stopped on switch:
+    // accounts the user has opened keep updating in the background until their
+    // task completes and a newer account needs the slot.
+    void bridge.rpc({ accountId: harkAccountId, op: 'watchStatus', hot: true }).catch(() => undefined)
+    if (harkSessionId && harkProjectsOpen === false) {
+      void bridge
+        .rpc({ accountId: harkAccountId, op: 'watchConversation', conversationId: harkSessionId })
+        .catch(() => undefined)
+    }
+    return () => {
+      if (harkSessionId && harkProjectsOpen === false) {
+        void bridge
+          .rpc({ accountId: harkAccountId, op: 'unwatchConversation', conversationId: harkSessionId })
+          .catch(() => undefined)
+      }
+    }
+  }, [harkSessionId, harkAccountId, harkProjectsOpen])
 
   if (!bot) {
     return (

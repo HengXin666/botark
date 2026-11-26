@@ -31,6 +31,7 @@ import { createId } from '@shared/id'
 import { SecurityVaultCenter } from '@/components/info/SecurityVaultCard'
 import { PaneHeader } from '@/components/layout/PaneHeader'
 import { MuseBatchImport } from '@/components/add-bot/MuseBatchImport'
+import { HarkPoolImport } from '@/components/settings/HarkPoolImport'
 import { BotAvatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
@@ -76,6 +77,7 @@ const PROXY_PLACEHOLDER = `# 支持每行一个代理（自动识别格式）：
 socks5://user:pass@127.0.0.1:1080
 socks5h://127.0.0.1:1080
 http://user:pass@127.0.0.1:7890
+https://user:pass@127.0.0.1:8443
 192.168.1.10:1080:username:password
 127.0.0.1:7890`
 
@@ -353,7 +355,7 @@ export function SettingsView() {
     setBusy(true)
     setError(undefined)
     setHint(undefined)
-    setAssignProgress('正在从 node-maint 拉取并按延迟排序的可用 http 节点...')
+    setAssignProgress('正在从 node-maint 拉取并按延迟排序的可用 http/https 节点...')
     try {
       const res = await muse.syncNodeMaint()
       const ids = allAccounts.map((a) => a.id)
@@ -364,7 +366,7 @@ export function SettingsView() {
         setHint(`已从 node-maint 同步 ${res.live} 个实测可出网节点，并分配给 ${assigned.assignedCount} / ${ids.length} 个账号`)
       } else {
         setAssignProgress(undefined)
-        setHint(res.live > 0 ? `已同步 ${res.live} 个可用节点` : 'node-maint 当前无实测可出网的 http 节点')
+        setHint(res.live > 0 ? `已同步 ${res.live} 个可用节点` : 'node-maint 当前无实测可出网的 http/https 节点')
       }
       await refreshProxiesAndPool()
     } catch (err) {
@@ -1898,7 +1900,8 @@ export function SettingsView() {
                       支持内置窗口登录或直接粘贴会话凭据接入。
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap items-start gap-2">
+                    <HarkPoolImport />
                     <Button variant="primary" size="sm" onClick={() => void handleQuickAddHarkAccount()}>
                       <Plus className="size-3.5" /> 网页登录新增 Hark 账号
                     </Button>
@@ -2223,7 +2226,7 @@ export function SettingsView() {
                       拉取订阅并导入
                     </button>
                   </div>
-                  <p className="mt-1.5 text-[11px] text-ink-secondary">支持明文节点列表、base64 订阅、Clash YAML 与 http/socks5 代理行；vless/ss/trojan 等协议节点会被跳过（不是可直连的 http 端点）。</p>
+                  <p className="mt-1.5 text-[11px] text-ink-secondary">支持明文节点列表、base64 订阅、Clash YAML 与 http/https/socks5 代理行；vless/ss/trojan 等协议节点会被跳过（不是可直连的 http 端点）。</p>
                 </div>
                 {/* Proxy Pool Importer Card */}
                 <div className="rounded-2xl border border-line bg-surface p-4 shadow-soft">
@@ -2239,7 +2242,8 @@ export function SettingsView() {
                         >
                           <option value="socks5">SOCKS5</option>
                           <option value="socks5h">SOCKS5H (远程 DNS)</option>
-                          <option value="http">HTTP / HTTPS</option>
+                          <option value="http">HTTP</option>
+                          <option value="https">HTTPS</option>
                         </select>
                       </label>
                       <button

@@ -58,6 +58,17 @@ describe('account proxy fails closed', () => {
 })
 
 describe('subscription parsing', () => {
+  it('keeps an https proxy line as https mode', async () => {
+    const { parseProxyLine } = await import('./proxySubscription')
+    expect(parseProxyLine('https://userA:pwdA@203.0.113.12:443')).toMatchObject({
+      mode: 'https',
+      host: '203.0.113.12',
+      port: 443,
+      username: 'userA',
+      password: 'pwdA'
+    })
+  })
+
   it('collects http/socks5 lines and skips protocol nodes', () => {
     const text = [
       'vless://11111111-1111-1111-1111-111111111111@203.0.113.10:443#a',
@@ -100,6 +111,25 @@ describe('subscription parsing', () => {
       proxyRules: 'http://203.0.113.12:3129',
       proxyBypassRules: '<local>'
     }))
+  })
+
+  it('keeps the https scheme in proxyRules', async () => {
+    await applyProxyToPartition('acc2', {
+      mode: 'https',
+      host: '203.0.113.13',
+      port: 443
+    })
+    expect(setProxy).toHaveBeenCalledWith(expect.objectContaining({
+      proxyRules: 'https://203.0.113.13:443',
+      proxyBypassRules: '<local>'
+    }))
+  })
+
+  it('maps clash https and tls:true http entries to https mode', () => {
+    const text = 'proxies:\n  - name: h1\n    type: https\n    server: 203.0.113.41\n    port: 443\n  - name: h2\n    type: http\n    tls: true\n    server: 203.0.113.42\n    port: 8443\n'
+    const r = parseSubscription(text)
+    expect(r.format).toBe('clash-yaml')
+    expect(r.nodes.map((n) => n.mode)).toEqual(['https', 'https'])
   })
 })
 describe('proxy selection', () => {

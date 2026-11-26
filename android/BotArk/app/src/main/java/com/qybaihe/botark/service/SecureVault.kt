@@ -93,6 +93,13 @@ class SecureVault(private val context: Context) {
 
     fun loadSnapshotCache(): WorkspaceSnapshot {
         if (!cacheFile.exists()) return WorkspaceSnapshot.EMPTY
+        // A previous build could persist downloaded Hark screenshots as base64
+        // inside this cache. Never let such a file block app startup; the
+        // desktop bridge will stream a fresh snapshot after launch.
+        if (cacheFile.length() > 8L * 1024 * 1024) {
+            runCatching { cacheFile.delete() }
+            return WorkspaceSnapshot.EMPTY
+        }
         return runCatching {
             json.decodeFromString<WorkspaceSnapshot>(cacheFile.readText())
         }.getOrDefault(WorkspaceSnapshot.EMPTY)

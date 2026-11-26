@@ -7,7 +7,7 @@
 export type SubscriptionFormat = 'clash-yaml' | 'base64-uri' | 'uri-list' | 'unknown'
 
 export interface SubscriptionNode {
-  mode: 'http' | 'socks5'
+  mode: 'http' | 'https' | 'socks5'
   host: string
   port: number
   username?: string
@@ -138,7 +138,7 @@ function safeDecode(value: string): string {
 }
 
 /** Parse one http(s)/socks5 URI into an endpoint. Unsupported schemes are not endpoints. */
-function parseEndpointLine(line: string, mode: 'http' | 'socks5'): SubscriptionNode | null {
+function parseEndpointLine(line: string, mode: 'http' | 'https' | 'socks5'): SubscriptionNode | null {
   const noFragment = line.split('#')[0]!
   const authority = noFragment.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split(/[/?]/)[0]!
   const atIdx = authority.lastIndexOf('@')
@@ -183,7 +183,10 @@ function parseUriList(text: string, format: SubscriptionFormat): SubscriptionPar
     if (schemeMatch) {
       const scheme = schemeMatch[1]!.toLowerCase()
       if (ENDPOINT_SCHEMES.has(scheme)) {
-        const node = parseEndpointLine(line, scheme === 'socks5' || scheme === 'socks5h' ? 'socks5' : 'http')
+        const node = parseEndpointLine(
+          line,
+          scheme === 'socks5' || scheme === 'socks5h' ? 'socks5' : scheme === 'https' ? 'https' : 'http'
+        )
         if (node) {
           const key = `${node.mode}:${node.username ?? ''}:${node.host}:${node.port}`
           if (!seen.has(key)) {
@@ -275,8 +278,9 @@ function parseClashYaml(text: string, format: SubscriptionFormat): SubscriptionP
       skipped += 1
       continue
     }
-    let mode: 'http' | 'socks5'
-    if (type === 'http' || type === 'https') mode = 'http'
+    let mode: 'http' | 'https' | 'socks5'
+    if (type === 'https') mode = 'https'
+    else if (type === 'http') mode = String(entry['tls'] ?? '').toLowerCase() === 'true' ? 'https' : 'http'
     else if (type === 'socks5' || type === 'socks5h' || type === 'socks') mode = 'socks5'
     else {
       const label = type || 'unknown'
@@ -318,7 +322,7 @@ export function subscriptionNodesToLines(nodes: readonly SubscriptionNode[]): st
 
 /** Selection criteria shared by linux and android subscription consumers. */
 export interface ProxySelectionCriteria {
-  allowedModes?: readonly ('http' | 'socks5')[]
+  allowedModes?: readonly ('http' | 'https' | 'socks5')[]
   requirePublicIp?: boolean
   maxLatencyMs?: number
   limit?: number
@@ -351,7 +355,7 @@ export async function selectProxyNodes(
   nodes: readonly SubscriptionNode[],
   criteria: ProxySelectionCriteria = {}
 ): Promise<ProxySelectionReport> {
-  const modes = criteria.allowedModes ?? ['http', 'socks5']
+  const modes = criteria.allowedModes ?? ['http', 'https', 'socks5']
   const requirePublicIp = criteria.requirePublicIp ?? true
   const limit = criteria.limit ?? nodes.length
   const rejected = new Map<string, number>()
@@ -359,7 +363,7 @@ export async function selectProxyNodes(
   const seen = new Set<string>()
   const passed: SubscriptionNode[] = []
   for (const node of nodes) {
-    if (!modes.includes(node.mode as 'http' | 'socks5')) { bump('protocol'); continue }
+    if (!modes.includes(node.mode as 'http' | 'https' | 'socks5')) { bump('protocol'); continue }
     if (!node.host || !Number.isInteger(node.port) || node.port < 1 || node.port > 65535) { bump('host_or_port'); continue }
     if (requirePublicIp && !isPublicIpv4(node.host)) { bump('non_public_ip'); continue }
     const key = `${node.mode}:${node.host}:${node.port}`

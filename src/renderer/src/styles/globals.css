@@ -88,7 +88,7 @@
   --animate-step-in: step-in 420ms var(--ease-spring-shape) both, veil-in 220ms ease-out both;
   --animate-mark-pop: mark-pop 430ms var(--ease-spring-pop) both;
   --animate-typing: typing 1.2s ease-in-out infinite;
-  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-shimmer-fade: shimmer-fade 1.8s ease-in-out infinite;
   --animate-grok-breathe: grok-breathe 3.8s ease-in-out infinite;
   --animate-grok-working: grok-working 1.8s ease-in-out infinite;
   --animate-grok-poke: grok-poke 640ms var(--ease-spring-pop) both;
@@ -109,7 +109,6 @@
   @keyframes veil-in {
     from {
       opacity: 0;
-      filter: blur(6px);
     }
   }
   @keyframes pop-drop {
@@ -174,12 +173,13 @@
       transform: translateY(-2px);
     }
   }
-  @keyframes shimmer {
-    from {
-      background-position: 150% 0;
+  @keyframes shimmer-fade {
+    0%,
+    100% {
+      opacity: 0.55;
     }
-    to {
-      background-position: -50% 0;
+    50% {
+      opacity: 1;
     }
   }
   @keyframes grok-breathe {
@@ -318,7 +318,9 @@
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: var(--animate-shimmer);
+  /* Animating background-position repaints glyphs every frame. Fading opacity
+     keeps the same soft-light effect on the compositor and is much cheaper. */
+  animation: var(--animate-shimmer-fade);
 }
 
 /* Electron window chrome helpers (no-ops in a regular browser). */

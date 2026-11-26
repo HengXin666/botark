@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { AddBotDialog } from '@/components/add-bot/AddBotDialog'
 import { ChatArea } from '@/components/chat/ChatArea'
+import { QuotaStatsPage } from '@/components/quota/QuotaStatsPage'
 import { AppShell } from '@/components/layout/AppShell'
 import { InfoPanel } from '@/components/info/InfoPanel'
 import { hasSeenOnboarding, OnboardingDialog } from '@/components/onboarding/OnboardingGuide'
@@ -8,6 +9,7 @@ import { CommandPalette } from '@/components/palette/CommandPalette'
 import { SettingsView } from '@/components/settings/SettingsView'
 import { Sidebar } from '@/components/sidebar/Sidebar'
 import { UpdateBanner } from '@/components/update/UpdateBanner'
+import { useQuotaUsageCollector } from '@/lib/quotaUsageCollector'
 import { useGlobalShortcuts } from '@/lib/shortcuts'
 import { startAdapterBridge } from '@/services/adapterBridge'
 import { startMobileSyncBridge } from '@/services/mobileSyncBridge'
@@ -15,15 +17,28 @@ import { useBotStore } from '@/store/botStore'
 import { startPrefsSync, usePrefsStore } from '@/store/prefsStore'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getBridge } from '@/lib/bridge'
+import { syncHarkPool } from '@/lib/harkPoolSync'
 
 export default function App() {
   const settingsOpen = useBotStore((s) => s.settingsOpen)
+  const quotaStatsOpen = useBotStore((s) => s.quotaStatsOpen)
   const selectedBotId = useBotStore((s) => s.selectedBotId)
-  // Details only make sense next to a selected bot (and not while in Settings).
+  useQuotaUsageCollector()
+  // Details only make sense next to a selected bot (and not while in a full-page view).
   const infoOpen = useBotStore(
-    (s) => !s.settingsOpen && s.infoPanelOpen && s.bots.some((b) => b.id === s.selectedBotId)
+    (s) => !s.settingsOpen && !s.quotaStatsOpen && s.infoPanelOpen && s.bots.some((b) => b.id === s.selectedBotId)
   )
   const setAddBotOpen = useBotStore((s) => s.setAddBotOpen)
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('harkPoolSync') !== '1') return
+    const timer = setTimeout(() => {
+      void syncHarkPool()
+        .then((result) => console.info('[hark-pool] auto sync', result))
+        .catch((error) => console.warn('[hark-pool] auto sync failed', error))
+    }, 2500)
+    return () => clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     const stop = startAdapterBridge()
@@ -31,32 +46,71 @@ export default function App() {
     // After reload the zustand status may still say online, but adapters have
     // no live session — reconnect Muse/Grok/Hark so send does not fail.
     const { accounts, connectAccount, addBot, removeAccountFromBot } = useBotStore.getState()
-    for (const account of Object.values(accounts)) {
-      if (
-        account.platformId === 'meta-muse' ||
-        account.platformId === 'grok' ||
-        account.platformId === 'hark' ||
-        account.platformId === 'dot' ||
-        account.platformId === 'hermes' ||
-        account.platformId === 'antigravity'
-      ) {
-        void connectAccount(account.id)
+    const orderedAccounts = Object.values(accounts)
+      .filter((account) => !account.manualOffline)
+      .sort((left, right) => {
+        const rank = (a: (typeof accounts)[string]) =>
+          a.status === 'offline' || a.status === 'error' ? 0 : 1
+        return rank(left) - rank(right)
+      })
+    // Start status monitoring for every Hark account before the slower auth
+    // probe pass. The main process keeps all of them on a 30s background watch
+    // and promotes up to 10 opened/working accounts to its 5s live pool, so
+    // accounts are observed from app launch even while connect() is still busy.
+    const harkBridge = getBridge()?.hark
+    if (harkBridge?.rpc) {
+      for (const account of orderedAccounts) {
+        if (account.platformId !== 'hark') continue
+        void harkBridge
+          .rpc({ accountId: account.id, op: 'watchStatus', intervalMs: 30_000, refreshTitles: false })
+          .catch(() => undefined)
       }
     }
+    // Connect in batches of 10, offline/error accounts first. Firing 80 Hark
+    // auth probes at once used to saturate the main process and still leave the
+    // broken accounts last in line; four-at-a-time made later accounts wait too
+    // long before they were observable.
+    void (async () => {
+      for (let index = 0; index < orderedAccounts.length; index += 10) {
+        await Promise.all(
+          orderedAccounts.slice(index, index + 10).map((account) => connectAccount(account.id).catch(() => undefined))
+        )
+      }
+    })()
     // Bootstrap proxy: pull live nodes from node-maint and bind to accounts once accounts exist.
     void (async () => {
       const muse = getBridge()?.muse
       if (!muse?.syncNodeMaint || !muse?.assignProxyPool) return
       let tries = 0
       const run = async () => {
-        const ids = Object.values(useBotStore.getState().accounts).map((a) => a.id)
+        const all = Object.values(useBotStore.getState().accounts)
+        const ids = all
+          .sort((left, right) => {
+            const rank = (a: (typeof all)[number]) =>
+              a.status === 'offline' || a.status === 'error' ? 0 : 1
+            return rank(left) - rank(right)
+          })
+          .map((a) => a.id)
         if (ids.length === 0) {
           if (tries++ < 20) setTimeout(run, 1500)
           return
         }
         try {
           await muse.syncNodeMaint()
+          // Pass broken accounts first so the limited live pool replaces their
+          // dead proxies instead of handing new nodes to already-working rows.
           await muse.assignProxyPool(ids, [])
+          // The initial connect pass ran before proxy assignment; retry the
+          // accounts that were offline so they pick up their new proxy config.
+          for (const account of all) {
+            if (
+              account.platformId === 'hark' &&
+              !account.manualOffline &&
+              (account.status === 'offline' || account.status === 'error')
+            ) {
+              void useBotStore.getState().connectAccount(account.id).catch(() => undefined)
+            }
+          }
         } catch {
           /* best effort */
         }
@@ -144,7 +198,25 @@ export default function App() {
         })
         .catch(() => undefined)
     }
+
+    // Proxy assignment may finish after the initial connect pass. Retry Hark
+    // accounts that are still offline once their pending flag clears; cap per
+    // account so a genuinely expired session does not loop forever.
+    const repairAttempts = new Map<string, number>()
+    const repairTimer = window.setInterval(() => {
+      const state = useBotStore.getState()
+      for (const account of Object.values(state.accounts)) {
+        if (account.platformId !== 'hark') continue
+        if (account.status !== 'offline' && account.status !== 'error') continue
+        if (account.pending || account.manualOffline) continue
+        const attempts = repairAttempts.get(account.id) ?? 0
+        if (attempts >= 3) continue
+        repairAttempts.set(account.id, attempts + 1)
+        void state.connectAccount(account.id).catch(() => undefined)
+      }
+    }, 5000)
     return () => {
+      window.clearInterval(repairTimer)
       stopMobileSync()
       stop()
     }
@@ -210,8 +282,11 @@ export default function App() {
           asideOpen={infoOpen}
           sidebar={<Sidebar onAddBot={() => setAddBotOpen(true)} />}
           main={
-            <ErrorBoundary surface={settingsOpen ? '管理控制台' : '对话区'} resetKey={settingsOpen ? 'settings' : selectedBotId}>
-              {settingsOpen ? <SettingsView /> : <ChatArea />}
+            <ErrorBoundary
+              surface={quotaStatsOpen ? '额度统计' : settingsOpen ? '管理控制台' : '对话区'}
+              resetKey={quotaStatsOpen ? 'quota-stats' : settingsOpen ? 'settings' : selectedBotId}
+            >
+              {quotaStatsOpen ? <QuotaStatsPage /> : settingsOpen ? <SettingsView /> : <ChatArea />}
             </ErrorBoundary>
           }
           aside={

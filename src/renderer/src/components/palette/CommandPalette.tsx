@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import * as RadixDialog from '@radix-ui/react-dialog'
-import { Globe, PanelRight, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react'
+import { BarChart3, Globe, PanelRight, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react'
 import { getPlatformInspector } from '@/components/info/platformInspector'
 import { BotAvatar } from '@/components/ui/Avatar'
 import { useGlide } from '@/hooks/useGlide'
@@ -77,6 +77,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
   const webOpen = useBotStore((s) => s.webSessionOpen)
   const selectBot = useBotStore((s) => s.selectBot)
   const setAddBotOpen = useBotStore((s) => s.setAddBotOpen)
+  const setQuotaStatsOpen = useBotStore((s) => s.setQuotaStatsOpen)
   const setOnboardingOpen = useBotStore((s) => s.setOnboardingOpen)
   const toggleInfoPanel = useBotStore((s) => s.toggleInfoPanel)
   const toggleWebSession = useBotStore((s) => s.toggleWebSession)
@@ -142,6 +143,16 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
         run: toggleInfoPanel
       },
       {
+        key: 'cmd:quota',
+        title: '额度统计',
+        lead: (
+          <CommandIcon>
+            <BarChart3 />
+          </CommandIcon>
+        ),
+        run: () => setQuotaStatsOpen(true)
+      },
+      {
         key: 'cmd:onboarding',
         title: t('Open product & security guide'),
         lead: (
@@ -186,7 +197,7 @@ function PaletteBody({ onClose }: { onClose: () => void }) {
     ].filter((row) => !wanted || row.title.toLowerCase().includes(wanted))
     if (commands.length) out.push([t('Commands'), commands])
     return out
-  }, [bots, selectedBotId, groups, accounts, messages, wanted, infoOpen, webOpen, selectBot, setAddBotOpen, setOnboardingOpen, toggleInfoPanel, toggleWebSession])
+  }, [bots, selectedBotId, groups, accounts, messages, wanted, infoOpen, webOpen, selectBot, setAddBotOpen, setQuotaStatsOpen, setOnboardingOpen, toggleInfoPanel, toggleWebSession])
 
   const rows = sections.flatMap(([, items]) => items)
   const active = Math.min(cursor, Math.max(rows.length - 1, 0))

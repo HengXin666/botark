@@ -266,13 +266,14 @@ export function registerMuseIpc(): void {
   ipcMain.handle(MUSE_CHANNELS.importProxyPool, async (_event, rawText: unknown, defaultMode: unknown) => {
     if (typeof rawText !== 'string') throw new TypeError('Invalid proxy pool text')
     const mode: Exclude<MuseProxyMode, 'direct'> =
-      defaultMode === 'http' || defaultMode === 'socks5h' ? defaultMode : 'socks5'
+      defaultMode === 'http' || defaultMode === 'https' || defaultMode === 'socks5h' ? defaultMode : 'socks5'
     return importProxyPool(rawText, mode)
   })
 
   ipcMain.handle(MUSE_CHANNELS.subscribeProxyPool, async (_event, url: unknown, defaultMode: unknown) => {
     if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) throw new TypeError('Invalid subscription url')
-    const mode: Exclude<MuseProxyMode, 'direct'> = defaultMode === 'http' || defaultMode === 'socks5' ? defaultMode : 'http'
+    const mode: Exclude<MuseProxyMode, 'direct'> =
+      defaultMode === 'http' || defaultMode === 'https' || defaultMode === 'socks5' ? defaultMode : 'http'
     return importSubscription(url, mode)
   })
 
@@ -297,7 +298,7 @@ export function registerMuseIpc(): void {
     const clean = nodes.filter((n): n is { mode: string; host: string; port: number; username?: string; password?: string } => {
       if (!n || typeof n !== 'object') return false
       const x = n as Record<string, unknown>
-      return (x.mode === 'http' || x.mode === 'socks5' || x.mode === 'socks5h') &&
+      return (x.mode === 'http' || x.mode === 'https' || x.mode === 'socks5' || x.mode === 'socks5h') &&
         typeof x.host === 'string' && x.host.length > 0 && Number.isInteger(x.port) && (x.port as number) > 0 && (x.port as number) <= 65535
     })
     const ids = accountIds.filter((i): i is string => typeof i === 'string')
