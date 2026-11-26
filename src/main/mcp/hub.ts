@@ -1346,6 +1346,7 @@ export function registerWorkspaceIpc(owner: () => BrowserWindow | null) {
         return { stopped: binding ? disposeBinding(binding) : undefined }
       })
       await cleanup.stopped
+      notifyWorkspaceRootChanged(scopeId)
       return view(scopeId)
     }
     if (disposedScopes.has(scopeId)) {

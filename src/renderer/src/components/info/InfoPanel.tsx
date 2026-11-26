@@ -67,6 +67,7 @@ import { cn } from '@/lib/cn'
 import { getBotAccounts, getBotStatus } from '@/lib/selectors'
 import { shortcutLabel } from '@/lib/shortcuts'
 import { useBotStore } from '@/store/botStore'
+import { setRoomAdministrator, useRooms } from '@/rooms/roomStore'
 import type { Bot, BotAccount } from '@/types'
 import { AccountList } from './AccountList'
 import { MemoryEditor } from './MemoryEditor'
@@ -266,6 +267,9 @@ export function InfoPanel() {
   const accountMap = useBotStore((s) => s.accounts)
   const toggleInfoPanel = useBotStore((s) => s.toggleInfoPanel)
   const updateNotes = useBotStore((s) => s.updateNotes)
+  const coordinationRoomId = useRooms((s) =>
+    bot ? s.rooms.find((room) => room.coordinatorId === bot.id)?.id : undefined
+  )
   const [requestedTab, setTab] = useState<InspectorTabId>('overview')
 
   const accounts = useMemo(() => (bot ? getBotAccounts(bot, accountMap) : []), [bot, accountMap])
@@ -301,6 +305,29 @@ export function InfoPanel() {
           <div key={`${bot.id}:${activeTab}`} className="animate-veil-in">
             {activeTab === 'overview' ? (
               <>
+                <Section title="协作调度">
+                  <label className="flex items-center gap-2 text-[13px]">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(coordinationRoomId)}
+                      disabled={bot.platformId === 'hark'}
+                      onChange={(event) => setRoomAdministrator(bot.id, event.target.checked)}
+                    />
+                    设为管理员
+                  </label>
+                  {bot.platformId === 'hark' && (
+                    <p className="mt-1 text-[11.5px] text-ink-muted">Hark 不支持管理员调度框架。</p>
+                  )}
+                  {coordinationRoomId && (
+                    <button
+                      type="button"
+                      className="mt-2 text-[12px] text-accent-600 hover:underline"
+                      onClick={() => useBotStore.getState().selectRoom(coordinationRoomId)}
+                    >
+                      打开调度空间
+                    </button>
+                  )}
+                </Section>
                 {bot.platformId === 'meta-muse' && bot.activeAccountId && (
                   <>
                     <QuotaSection accountId={bot.activeAccountId} />

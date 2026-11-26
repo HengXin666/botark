@@ -57,7 +57,10 @@ it('rejects and hides credential files while allowing env templates', async () =
   await writeFile(join(root, '.env.example'), 'TOKEN=placeholder')
   await mkdir(join(root, '.ssh'))
   await writeFile(join(root, '.ssh', 'id_rsa'), 'private')
+  await mkdir(join(root, '.hxoa'))
+  await writeFile(join(root, '.hxoa', 'hx-login.json'), '{"token":"secret","key":"secret"}')
 
+  await expect(workspaceFile(root, 'read', { path: '.hxoa/hx-login.json' })).rejects.toThrow('Sensitive')
   await expect(workspaceFile(root, 'read', { path: '.env' })).rejects.toThrow('Sensitive')
   await expect(workspaceFile(root, 'write', { path: '.ssh/id_rsa', text: 'x' })).rejects.toThrow('Sensitive')
   expect(await workspaceFile(root, 'read', { path: '.env.example' })).toBe('TOKEN=placeholder')
@@ -65,6 +68,17 @@ it('rejects and hides credential files while allowing env templates', async () =
   expect(listing.split('\n').map((line) => line.replace(/\/$/, ''))).not.toContain('.env')
   expect(listing.split('\n').map((line) => line.replace(/\/$/, ''))).not.toContain('.ssh')
   expect(listing).toContain('.env.example')
+})
+
+it('rejects symlinks that resolve to sensitive files or directories', async () => {
+  await writeFile(join(root, '.env'), 'TOKEN=secret')
+  await symlink('.env', join(root, 'env-link'), process.platform === 'win32' ? 'file' : undefined)
+  await expect(workspaceFile(root, 'read', { path: 'env-link' })).rejects.toThrow('Sensitive')
+
+  await mkdir(join(root, '.ssh'))
+  await writeFile(join(root, '.ssh', 'id_rsa'), 'private')
+  await symlink('.ssh', join(root, 'ssh-link'), process.platform === 'win32' ? 'junction' : 'dir')
+  await expect(workspaceFile(root, 'list', { path: 'ssh-link' })).rejects.toThrow('Sensitive')
 })
 
 it('skips dependency, build, and VCS directories by default in search', async () => {

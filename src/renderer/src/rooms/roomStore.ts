@@ -246,6 +246,7 @@ export function setRoomAdministrator(botId: string, enabled: boolean) {
   const { bots, accounts } = useBotStore.getState()
   const owner = bots.find((b) => b.id === botId)
   if (!enabled || !owner) return
+  if (owner.platformId === 'hark') return
   const members = [owner, ...bots.filter((b) => b !== owner)].map(initialMember)
   const room: CollabRoom = {
     id: createId('room'), title: owner.name + ' · 管理员调度', coordinatorId: owner.id,
@@ -795,7 +796,7 @@ export async function submitBrief(
       const { accounts } = useBotStore.getState()
       const first = room.members.find((member) => {
         const status = adapterRegistry.get(member.platform)?.getStatus(member.accountId)
-        return status === 'online' || status === 'attention'
+        return status === 'online' || status === 'attention' || (member.platform === 'hark' && status === 'busy')
       }) ?? room.members.find((member) => isConnectedStatus(accounts[member.accountId]?.status))
         ?? room.members[0]
       if (first) initial.push(first)

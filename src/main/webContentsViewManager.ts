@@ -20,6 +20,7 @@ interface ManagedView {
   info: Omit<WebViewInfo, 'attached'>
   view: WebContentsView
   lastUsedAt: number
+  attachedOnce?: boolean
   idleTimer?: ReturnType<typeof setTimeout>
 }
 
@@ -143,11 +144,12 @@ export class WebContentsViewManager {
   attach(viewId: string, bounds: WebViewBounds): WebViewInfo {
     const managed = this.require(viewId)
     managed.lastUsedAt = Date.now()
+    managed.attachedOnce = true
     if (managed.idleTimer) {
       clearTimeout(managed.idleTimer)
       managed.idleTimer = undefined
     }
-    if (this.attachedId && this.attachedId !== viewId) this.detach(this.attachedId)
+    if (this.attachedId && this.attachedId !== viewId) this.detach(this.attachedId, viewId)
     if (this.attachedId !== viewId) {
       this.window.contentView.addChildView(managed.view)
       this.attachedId = viewId
@@ -161,13 +163,13 @@ export class WebContentsViewManager {
     this.views.get(viewId)?.view.setBounds(toRectangle(bounds))
   }
 
-  detach(viewId: string): void {
+  detach(viewId: string, keepViewId?: string): void {
     const managed = this.views.get(viewId)
     if (!managed || this.attachedId !== viewId) return
     this.window.contentView.removeChildView(managed.view)
     this.attachedId = null
     managed.lastUsedAt = Date.now()
-    this.trimDetachedViews()
+    this.trimDetachedViews(keepViewId)
     if (managed.idleTimer) clearTimeout(managed.idleTimer)
     managed.idleTimer = setTimeout(() => {
       if (this.attachedId === viewId) return
@@ -200,9 +202,9 @@ export class WebContentsViewManager {
   }
 
   /** Keep only the newest detached view warm; close older Chromium renderers. */
-  private trimDetachedViews(): void {
+  private trimDetachedViews(keepViewId?: string): void {
     const detached = [...this.views.entries()]
-      .filter(([id]) => id !== this.attachedId)
+      .filter(([id, managed]) => id !== this.attachedId && id !== keepViewId && managed.attachedOnce)
       .sort((left, right) => right[1].lastUsedAt - left[1].lastUsedAt)
     for (const [viewId] of detached.slice(MAX_WARM_DETACHED_VIEWS)) this.destroy(viewId)
   }

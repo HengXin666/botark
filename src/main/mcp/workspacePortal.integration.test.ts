@@ -249,6 +249,15 @@ describe('workspace portal', () => {
     expect(state.localUrl).toBeUndefined()
   })
 
+  it('closes the portal when its workspace scope is disposed', async () => {
+    await bindRoot('room-dispose', root)
+    const opened = await portalRequest({ op: 'open', scope: 'room-dispose' })
+    expect(opened.running).toBe(true)
+    await workspaceOp('room-dispose', { op: 'dispose' })
+    const after = await portalRequest({ op: 'status', scope: 'room-dispose' })
+    expect(after.running).toBe(false)
+  })
+
   it('refuses to escape the bound workspace', async () => {
     await bindRoot('room-1', root)
     const state = await portalRequest({ op: 'open', scope: 'room-1' })

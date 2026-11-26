@@ -26,6 +26,11 @@ function within(root: string, file: string) {
   const rel = relative(root, file)
   if (isAbsolute(rel) || rel === '..' || rel.startsWith('..' + sep)) throw new Error('Path is outside the selected workspace')
 }
+function rejectSensitiveCanonical(root: string, file: string) {
+  if (isSensitiveWorkspacePath(relative(root, file))) {
+    throw new Error('Sensitive credential or metadata path is not accessible')
+  }
+}
 function field(args: Record<string, unknown>, key: string) {
   const value = args[key]
   if (typeof value !== 'string') throw new Error(`Expected text for ${key}`)
@@ -113,6 +118,7 @@ export async function workspaceFile(
     const parent = await realpath(dirname(path))
     within(root, parent)
     const dest = join(parent, basename(path))
+    rejectSensitiveCanonical(root, dest)
     const key = process.platform === 'win32' || process.platform === 'darwin'
       ? dest.normalize('NFC').toLowerCase()
       : dest
@@ -127,6 +133,7 @@ export async function workspaceFile(
   }
   const canonical = await realpath(path)
   within(root, canonical)
+  rejectSensitiveCanonical(root, canonical)
   if (name === 'read') return readText(canonical)
   if (name !== 'list' && name !== 'search') throw new Error('Unknown workspace tool')
   const query = name === 'search' ? field(args, 'query').toLowerCase() : ''
@@ -136,6 +143,7 @@ export async function workspaceFile(
   while (directories.length) {
     const directory = await realpath(directories.pop()!)
     within(root, directory)
+    rejectSensitiveCanonical(root, directory)
     for await (const item of await opendir(directory)) {
       if (name === 'search' && item.isDirectory() && SEARCH_EXCLUDED_DIRECTORIES.has(item.name)) continue
       const entry = join(directory, item.name)

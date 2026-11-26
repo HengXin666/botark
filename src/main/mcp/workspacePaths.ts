@@ -1,5 +1,5 @@
 const SAFE_ENV_TEMPLATE_RE = /^\.env\.(example|sample|template|dist)$/i
-const SENSITIVE_DIR_SEGMENTS = new Set(['.git', '.ssh', '.aws', '.gnupg', '.kube'])
+const SENSITIVE_DIR_SEGMENTS = new Set(['.git', '.ssh', '.aws', '.gnupg', '.kube', '.hxoa'])
 const SENSITIVE_EXACT_NAMES = new Set([
   '.env',
   '.npmrc',
@@ -18,7 +18,7 @@ const SENSITIVE_EXACT_NAMES = new Set([
   'secrets.yml'
 ])
 const SENSITIVE_EXT_RE = /\.(pem|key|p12|pfx|jks|kdbx)$/i
-const SENSITIVE_NAME_RE = /^(id_(rsa|ed25519|ecdsa|dsa)\..+|service-account.*\.json|.*credentials.*\.json)$/i
+const SENSITIVE_NAME_RE = /^(id_(rsa|ed25519|ecdsa|dsa)\..+|service-account.*\.json|.*credentials.*\.json|.*-login\.json)$/i
 
 export function normalizeWorkspaceRelPath(raw: string): string {
   const normalized = raw.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '').replace(/\/+$/, '')
