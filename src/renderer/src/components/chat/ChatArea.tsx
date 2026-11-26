@@ -16,6 +16,8 @@ import { DocumentCanvasPane } from './NativeDocumentDialog'
 import { t } from '@/lib/i18n'
 import { ChatApprovals } from './ApprovalCard'
 import { HarkProjectsPage } from '@/components/hark/HarkProjectsPage'
+import { HarkBrowserCard } from '@/components/hark/HarkBrowserCard'
+import { ShareConversationDialog } from './ShareConversationDialog'
 
 const NO_MESSAGES: ChatMessage[] = []
 
@@ -226,6 +228,9 @@ export function ChatArea() {
           <WebSessionPane key={`${bot.id}:${activeAccount.id}`} bot={bot} account={activeAccount} />
         ) : (
           <>
+            {bot.platformId === 'hark' && activeAccount && harkSessionId && (
+              <HarkBrowserCard accountId={activeAccount.id} sessionId={harkSessionId} />
+            )}
             {messages.length === 0 && !typing ? (
               <ConversationIntro
                 bot={bot}
@@ -272,6 +277,7 @@ export function ChatArea() {
           onOpenNestedDoc={(next) => setActiveDocument(next)}
         />
       )}
+      <ShareConversationDialog bot={bot} messages={messages} />
     </div>
   )
 }

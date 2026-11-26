@@ -20,6 +20,8 @@ import { registerMobileSyncIpc, stopMobileSyncServer } from './mobileSync/mobile
 import { applyAllStoredProxies, lookupProxyCredentials } from './muse/accountProxy'
 import { persistMihomoBindings, restoreMihomoFromFile, stopMihomo } from './muse/mihomoManager'
 import { hardenVaultFilePermissions, registerVaultIpc } from './securityVault'
+import { registerWorkspaceIpc, stopWorkspaces } from './mcp/hub'
+import { registerWorkspacePortalIpc, stopWorkspacePortals } from './mcp/workspacePortal'
 
 app.setName('BotArk')
 app.setPath('userData', join(app.getPath('appData'), 'botark'))
@@ -195,6 +197,8 @@ app.on('before-quit', () => {
   cancelAllHermesRuns('*')
   cancelAllAntigravityRuns('*')
   void stopMobileSyncServer()
+  void stopWorkspaces()
+  void stopWorkspacePortals()
   disposeAllMuseManagers()
   persistMihomoBindings()
   stopMihomo()
@@ -225,6 +229,8 @@ app.whenReady().then(async () => {
   registerAntigravityIpc()
   registerMobileSyncIpc()
   registerVaultIpc()
+  registerWorkspaceIpc(() => mainWindow)
+  registerWorkspacePortalIpc(() => mainWindow)
   mainWindow = createMainWindow()
   startAutoUpdater()
 

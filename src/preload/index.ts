@@ -23,6 +23,8 @@ import {
   type MobileRelayCommand,
   type MobileSyncStateView
 } from '@shared/mobileSync'
+import { WORKSPACE_CHANNEL } from '@shared/workspace'
+import { WORKSPACE_PORTAL_CHANNEL } from '@shared/workspacePortal'
 
 const bridge: BotHubBridge = {
   platform: process.platform,
@@ -87,12 +89,14 @@ const bridge: BotHubBridge = {
       ipcRenderer.invoke(MUSE_CHANNELS.uploadWorkspaceFile, accountId, args),
     getProxy: (accountId) => ipcRenderer.invoke(MUSE_CHANNELS.getProxy, accountId),
     setProxy: (accountId, config) => ipcRenderer.invoke(MUSE_CHANNELS.setProxy, accountId, config),
+    testProxy: (accountId, config) => ipcRenderer.invoke(MUSE_CHANNELS.testProxy, accountId, config),
     listProxyPool: () => ipcRenderer.invoke(MUSE_CHANNELS.listProxyPool),
     importProxyPool: (rawText, defaultMode) =>
       ipcRenderer.invoke(MUSE_CHANNELS.importProxyPool, rawText, defaultMode),
     removeProxyPoolItem: (id) => ipcRenderer.invoke(MUSE_CHANNELS.removeProxyPoolItem, id),
     clearProxyPool: () => ipcRenderer.invoke(MUSE_CHANNELS.clearProxyPool),
     assignProxyPool: (accountIds, keepIds) => ipcRenderer.invoke(MUSE_CHANNELS.assignProxyPool, accountIds, keepIds),
+    testProxyPool: (ids) => ipcRenderer.invoke(MUSE_CHANNELS.testProxyPool, ids),
     assignNextAvailableProxy: (accountId) => ipcRenderer.invoke(MUSE_CHANNELS.assignNextAvailableProxy, accountId),
     subscribeProxyPool: (url, defaultMode) => ipcRenderer.invoke(MUSE_CHANNELS.subscribeProxyPool, url, defaultMode),
     listSubscriptionSources: () => ipcRenderer.invoke(MUSE_CHANNELS.listSubscriptionSources),
@@ -199,6 +203,14 @@ const bridge: BotHubBridge = {
       ipcRenderer.on(MOBILE_SYNC_CHANNELS.command, handler)
       return () => ipcRenderer.removeListener(MOBILE_SYNC_CHANNELS.command, handler)
     }
+  },
+  workspace: {
+    manage: (scope, request) => ipcRenderer.invoke(WORKSPACE_CHANNEL, scope, request),
+    run: (scope, tool, args, recipient) =>
+      ipcRenderer.invoke(WORKSPACE_CHANNEL, scope, { op: 'run', tool, args, recipient })
+  },
+  workspacePortal: {
+    manage: (request) => ipcRenderer.invoke(WORKSPACE_PORTAL_CHANNEL, request)
   },
   vault: {
     status: (request) => ipcRenderer.invoke(VAULT_CHANNELS.status, request ?? {}),

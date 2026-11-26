@@ -62,6 +62,8 @@ import type {
   MobileSyncStateView,
   MobileWorkspaceSnapshot
 } from './mobileSync'
+import type { WorkspaceBridge } from './workspace'
+import type { PortalBridge } from './workspacePortal'
 
 /** Controls embedded platform web sessions (Electron WebContentsView). */
 export interface WebViewBridge {
@@ -142,6 +144,7 @@ export interface MuseBridge {
   ): Promise<{ path: string; filename: string; mimeType: string }>
   getProxy(accountId: string): Promise<MuseProxyView>
   setProxy(accountId: string, config: MuseProxyConfigInput): Promise<MuseProxyView>
+  testProxy(accountId: string, config?: MuseProxyConfigInput): Promise<import('./ipc').MuseProxyTestResult>
   listProxyPool(): Promise<MuseProxyPoolItemView[]>
   importProxyPool(
     rawText: string,
@@ -151,6 +154,7 @@ export interface MuseBridge {
   clearProxyPool(): Promise<MuseProxyPoolItemView[]>
   /** `keepIds`: accounts whose current slot is kept but who get no new one. */
   assignProxyPool(accountIds: string[], keepIds?: string[]): Promise<{ assignedCount: number; items: MuseProxyPoolItemView[] }>
+  testProxyPool(ids?: string[]): Promise<Record<string, import('./ipc').MuseProxyTestResult>>
   /** Probe the pool and bind one free, working proxy to this account immediately. */
   assignNextAvailableProxy(accountId: string): Promise<import('./ipc').AssignNextProxyResult>
   subscribeProxyPool(
@@ -278,4 +282,6 @@ export interface BotHubBridge {
   readonly antigravity: AntigravityBridge
   readonly mobileSync?: MobileSyncBridge
   readonly vault?: VaultBridge
+  readonly workspace?: WorkspaceBridge
+  readonly workspacePortal?: PortalBridge
 }

@@ -52,6 +52,13 @@ export function proxyFetch(proxyUrl: string | undefined, input: string, init?: R
   return undiciFetch(input, { ...(init as object), dispatcher: dispatcherFor(proxyUrl) } as never) as unknown as Promise<Response>
 }
 
+/** Close pooled undici dispatchers (tests and app shutdown). */
+export async function closeProxyDispatchers(): Promise<void> {
+  const all = [...dispatchers.values()]
+  dispatchers.clear()
+  await Promise.all(all.map((dispatcher) => dispatcher.close().catch(() => undefined)))
+}
+
 export function proxyWsAgent(proxyUrl: string | undefined): Agent | undefined {
   if (!proxyUrl?.trim()) return undefined
   const { url, kind } = requireProxy(proxyUrl)

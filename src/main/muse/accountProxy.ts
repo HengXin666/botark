@@ -7,7 +7,8 @@ import { app, safeStorage, session as electronSession } from "electron"
 import { partitionForAccount } from "../webContentsViewManager"
 import { readJsonFile, writeJsonAtomic } from "../jsonFile"
 import { createMutex, planPoolAssignment, planSinglePoolSwap, releasePoolSlot } from "@shared/proxyPool"
-import type { AssignNextProxyResult } from "@shared/ipc"
+import type { AssignNextProxyResult, MuseProxyTestResult } from "@shared/ipc"
+import { probeProxyUrl, runWithConcurrency, type ProxyProbeOptions } from "../proxyHealthCheck"
 import { syncNodeMaintLiveNodes, type NodeMaintLiveNode } from './nodeMaint'
 import { buildAccountProxyUrl, probeProxyNode } from './proxyProbe'
 export { buildAccountProxyUrl, probeProxyNode } from './proxyProbe'
@@ -591,4 +592,64 @@ export async function getProxyPoolItemSecret(id: string): Promise<ImportedProxyN
     username: cfg.username,
     password: cfg.password
   }
+}
+function proxyIdentity(cfg: MuseProxyConfig): string {
+  return [cfg.mode, cfg.host ?? "", cfg.port ?? "", cfg.username ?? ""].join("|")
+}
+
+/**
+ * Test connectivity and latency for an account's saved proxy or an unsaved draft.
+ * A draft without a password may reuse the stored password for the same proxy identity.
+ */
+export async function testAccountProxy(
+  accountId: string,
+  draft?: MuseProxyConfig,
+  opts?: ProxyProbeOptions
+): Promise<MuseProxyTestResult> {
+  try {
+    let resolved: MuseProxyConfig
+    if (draft) {
+      resolved = normalize(draft)
+      if (resolved.mode !== "direct" && !resolved.password) {
+        const previous = await loadProxyConfig(accountId).catch(() => null)
+        if (previous?.password && proxyIdentity(previous) === proxyIdentity(resolved)) {
+          resolved = { ...resolved, password: previous.password }
+        }
+      }
+    } else {
+      resolved = await loadProxyConfig(accountId)
+    }
+    return await probeProxyUrl(buildAccountProxyUrl(resolved) ?? undefined, opts)
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      checkedAt: Date.now()
+    }
+  }
+}
+
+/** Test all (or selected) encrypted proxy-pool items with bounded concurrency. */
+export async function testProxyPoolItems(
+  ids?: readonly string[],
+  opts?: ProxyProbeOptions
+): Promise<Record<string, MuseProxyTestResult>> {
+  const pool = readPoolStore()
+  const filter = ids && ids.length > 0 ? new Set(ids) : null
+  const targets = filter ? pool.filter((item) => filter.has(item.id)) : pool
+  const entries = await runWithConcurrency(targets, async (slot) => {
+    const config = await decryptPoolItem(slot)
+    if (!config || config.mode === "direct" || !config.host || !config.port) {
+      return [
+        slot.id,
+        {
+          ok: false,
+          error: "代理配置无法解密或无效（请检查系统钥匙串）",
+          checkedAt: Date.now()
+        } satisfies MuseProxyTestResult
+      ] as const
+    }
+    return [slot.id, await probeProxyUrl(buildAccountProxyUrl(config) ?? undefined, opts)] as const
+  })
+  return Object.fromEntries(entries)
 }

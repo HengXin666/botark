@@ -1,6 +1,8 @@
 import { CheckCircle2, ChevronRight, FolderKanban, Globe, MessageSquarePlus, PanelRight, Pin, PinOff, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { PaneHeader } from '@/components/layout/PaneHeader'
+import { ArkExportDocSvg } from '@/components/ui/ArkGlyphs'
+import { triggerShareConversation } from './ShareConversationDialog'
 import { getPlatformInspector } from '@/components/info/platformInspector'
 import { BotAvatar } from '@/components/ui/Avatar'
 import { IconButton } from '@/components/ui/IconButton'
@@ -74,6 +76,7 @@ export function ChatHeader({ bot, accounts: _accounts }: ChatHeaderProps) {
   const typing = useBotStore((s) => s.typing[bot.id] === true)
   const activity = useBotStore((s) => s.activity[bot.activeAccountId])
   const lastMessage = useBotStore((s) => s.messages[bot.id]?.at(-1))
+  const hasMessages = useBotStore((s) => (s.messages[bot.id]?.length ?? 0) > 0)
   const activeAccount = allAccounts[bot.activeAccountId]
   const activeHarkProject = bot.platformId === 'hark'
     ? bot.harkProjects?.find((project) => project.id === bot.activeSessionId)
@@ -224,6 +227,11 @@ export function ChatHeader({ bot, accounts: _accounts }: ChatHeaderProps) {
             onClick={() => void connectAccount(bot.activeAccountId)}
           >
             <RefreshCw className={cn(activeAccount?.pending && 'animate-spin')} />
+          </IconButton>
+        )}
+        {hasMessages && (
+          <IconButton label="共享对话页面" onClick={() => triggerShareConversation({ botId: bot.id })}>
+            <ArkExportDocSvg />
           </IconButton>
         )}
         <IconButton label={bot.pinned ? t('Unpin from sidebar') : t('Pin to sidebar')} active={bot.pinned === true} onClick={() => togglePinBot(bot.id)}>

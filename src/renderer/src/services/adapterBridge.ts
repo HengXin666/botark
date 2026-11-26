@@ -50,8 +50,17 @@ function electronBridge(): Window["electron"] | undefined {
   return typeof window !== "undefined" ? window.electron : undefined
 }
 
+function isRoomTurn(conversationId?: string): boolean {
+  return Boolean(conversationId?.startsWith("room-turn-"))
+}
+
 function handleEvent(event: AdapterEvent): void {
   const store = useBotStore.getState()
+  // Room turns are consumed by roomStore directly. Letting them reach the
+  // normal bot store would duplicate every room reply into a member's private
+  // chat (conversationId is a synthetic "room-turn-*" id).
+  if (event.type === "message" && isRoomTurn(event.message.conversationId)) return
+  if ((event.type === "typing" || event.type === "message_delta") && isRoomTurn(event.conversationId)) return
   if (event.type === "message") watchdog.touch(botIdFor(event.message.conversationId))
   else if (event.type === "typing" || event.type === "message_delta") watchdog.touch(botIdFor(event.conversationId))
   else if (event.type === "activity") touchAccount(event.accountId)

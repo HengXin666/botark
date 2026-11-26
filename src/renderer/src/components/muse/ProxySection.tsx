@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ShieldCheck, Shuffle } from 'lucide-react'
-import type { MuseProxyMode, MuseProxyView } from '@shared/ipc'
+import type { MuseProxyMode, MuseProxyTestResult, MuseProxyView } from '@shared/ipc'
 import { EmptyLine, Section } from '@/components/info/Section'
 import { Button } from '@/components/ui/Button'
 import { TextInput } from '@/components/ui/Field'
 import { RefreshButton } from '@/components/muse/RefreshButton'
 import { getBridge } from '@/lib/bridge'
+import { cn } from '@/lib/cn'
 import { t } from '@/lib/i18n'
 import { useBotStore } from '@/store/botStore'
 
@@ -37,6 +38,8 @@ export function ProxySection({ accountId }: { accountId: string }) {
   const [selectedPoolId, setSelectedPoolId] = useState('')
   const [picking, setPicking] = useState(false)
   const [assigning, setAssigning] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<MuseProxyTestResult | null>(null)
 
   const refresh = useCallback(async () => {
     const muse = getBridge()?.muse
@@ -131,6 +134,32 @@ export function ProxySection({ accountId }: { accountId: string }) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setAssigning(false)
+    }
+  }
+
+  const test = async () => {
+    const muse = getBridge()?.muse
+    if (!muse?.testProxy) return
+    setTesting(true)
+    setError(undefined)
+    setTestResult(null)
+    try {
+      const result = await muse.testProxy(accountId, {
+        mode,
+        host: host.trim() || undefined,
+        port: port.trim() ? Number(port) : undefined,
+        username: username.trim() || undefined,
+        password: password || undefined
+      })
+      setTestResult(result)
+    } catch (err) {
+      setTestResult({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+        checkedAt: Date.now()
+      })
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -244,9 +273,21 @@ export function ProxySection({ accountId }: { accountId: string }) {
             </label>
           </>
         )}
-        <Button size="sm" variant="secondary" disabled={saving} onClick={() => void save()}>
-          {t('Save proxy')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" disabled={saving} onClick={() => void save()}>
+            {t('Save proxy')}
+          </Button>
+          <Button size="sm" variant="secondary" disabled={testing || saving || picking} onClick={() => void test()}>
+            {testing ? '测速中…' : '测试延迟'}
+          </Button>
+        </div>
+        {testResult && (
+          <p className={cn('text-[11.5px]', testResult.ok ? 'text-status-online-ink' : 'text-status-error')}>
+            {testResult.ok
+              ? `✓ ${testResult.latencyMs ?? '?'} ms${testResult.country ? ` · ${testResult.country}` : ''}${testResult.exitIp ? ` · ${testResult.exitIp}` : ''}`
+              : `✗ ${testResult.error ?? '代理连接失败'}`}
+          </p>
+        )}
         <Button
           size="sm"
           variant="primary"

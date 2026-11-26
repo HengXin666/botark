@@ -2,6 +2,9 @@ import { useEffect } from 'react'
 import { AddBotDialog } from '@/components/add-bot/AddBotDialog'
 import { ChatArea } from '@/components/chat/ChatArea'
 import { QuotaStatsPage } from '@/components/quota/QuotaStatsPage'
+import { RoomView } from '@/rooms/RoomView'
+import { RoomInspectorPanel } from '@/rooms/RoomInspectorPanel'
+import { useRooms } from '@/rooms/roomStore'
 import { AppShell } from '@/components/layout/AppShell'
 import { InfoPanel } from '@/components/info/InfoPanel'
 import { hasSeenOnboarding, OnboardingDialog } from '@/components/onboarding/OnboardingGuide'
@@ -22,12 +25,17 @@ import { syncHarkPool } from '@/lib/harkPoolSync'
 export default function App() {
   const settingsOpen = useBotStore((s) => s.settingsOpen)
   const quotaStatsOpen = useBotStore((s) => s.quotaStatsOpen)
+  const roomsOpen = useBotStore((s) => s.roomsOpen)
+  const selectedRoomId = useBotStore((s) => s.selectedRoomId)
   const selectedBotId = useBotStore((s) => s.selectedBotId)
+  const activeRoom = useRooms((s) => s.rooms.find((r) => r.id === selectedRoomId))
   useQuotaUsageCollector()
-  // Details only make sense next to a selected bot (and not while in a full-page view).
-  const infoOpen = useBotStore(
-    (s) => !s.settingsOpen && !s.quotaStatsOpen && s.infoPanelOpen && s.bots.some((b) => b.id === s.selectedBotId)
-  )
+  // Details only make sense next to a selected bot, or next to an existing room.
+  const infoOpen = useBotStore((s) => {
+    if (s.settingsOpen || s.quotaStatsOpen || !s.infoPanelOpen) return false
+    if (s.roomsOpen) return Boolean(activeRoom)
+    return s.bots.some((b) => b.id === s.selectedBotId)
+  })
   const setAddBotOpen = useBotStore((s) => s.setAddBotOpen)
 
   useEffect(() => {
@@ -283,15 +291,18 @@ export default function App() {
           sidebar={<Sidebar onAddBot={() => setAddBotOpen(true)} />}
           main={
             <ErrorBoundary
-              surface={quotaStatsOpen ? '额度统计' : settingsOpen ? '管理控制台' : '对话区'}
-              resetKey={quotaStatsOpen ? 'quota-stats' : settingsOpen ? 'settings' : selectedBotId}
+              surface={settingsOpen ? '管理控制台' : quotaStatsOpen ? '额度统计' : roomsOpen ? '协作空间' : '对话区'}
+              resetKey={settingsOpen ? 'settings' : quotaStatsOpen ? 'quota-stats' : roomsOpen ? `rooms:${selectedRoomId ?? ''}` : selectedBotId}
             >
-              {quotaStatsOpen ? <QuotaStatsPage /> : settingsOpen ? <SettingsView /> : <ChatArea />}
+              {settingsOpen ? <SettingsView /> : quotaStatsOpen ? <QuotaStatsPage /> : roomsOpen ? <RoomView id={selectedRoomId ?? ''} /> : <ChatArea />}
             </ErrorBoundary>
           }
           aside={
-            <ErrorBoundary surface="右侧面板" resetKey={selectedBotId}>
-              <InfoPanel />
+            <ErrorBoundary
+              surface={roomsOpen && activeRoom ? '协作空间详情' : '右侧面板'}
+              resetKey={roomsOpen ? `room:${selectedRoomId ?? ''}` : selectedBotId}
+            >
+              {roomsOpen && activeRoom ? <RoomInspectorPanel room={activeRoom} /> : <InfoPanel />}
             </ErrorBoundary>
           }
         />

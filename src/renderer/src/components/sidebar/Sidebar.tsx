@@ -1,5 +1,5 @@
 import { type KeyboardEvent } from 'react'
-import { BarChart3, PanelLeft, Plus, QrCode, Search, Settings, Sparkles } from 'lucide-react'
+import { BarChart3, MessagesSquare, PanelLeft, Plus, QrCode, Search, Settings, Sparkles } from 'lucide-react'
 import { hasSeenOnboarding } from '@/components/onboarding/OnboardingGuide'
 import { GrokBotMark } from '@/components/ui/GrokBotMark'
 import { IconButton } from '@/components/ui/IconButton'
@@ -8,6 +8,7 @@ import { runtimePlatform } from '@/lib/bridge'
 import { cn } from '@/lib/cn'
 import { shortcutLabel } from '@/lib/shortcuts'
 import { useBotStore } from '@/store/botStore'
+import { PinnedRoomsList, RoomList } from '@/rooms/RoomSidebarList'
 import { BotList } from './BotList'
 
 interface SidebarProps {
@@ -28,6 +29,8 @@ export function Sidebar({ onAddBot }: SidebarProps) {
   const toggleSidebarCollapsed = useBotStore((s) => s.toggleSidebarCollapsed)
   const settingsOpen = useBotStore((s) => s.settingsOpen)
   const quotaStatsOpen = useBotStore((s) => s.quotaStatsOpen)
+  const roomsOpen = useBotStore((s) => s.roomsOpen)
+  const setRoomsOpen = useBotStore((s) => s.setRoomsOpen)
   const setQuotaStatsOpen = useBotStore((s) => s.setQuotaStatsOpen)
   const setSettingsOpen = useBotStore((s) => s.setSettingsOpen)
   const onboardingOpen = useBotStore((s) => s.onboardingOpen)
@@ -64,7 +67,9 @@ export function Sidebar({ onAddBot }: SidebarProps) {
       <div className="flex min-h-0 flex-1 flex-col items-center" onKeyDown={typeToSearch}>
         <div className="drag-region h-[42px] w-full shrink-0" />
         <div className="flex min-h-0 w-full flex-1 flex-col items-center px-1.5 pt-1 pb-2">
+          <PinnedRoomsList compact />
           <BotList />
+          <RoomList compact />
         </div>
         <div className="no-drag flex shrink-0 flex-col items-center gap-1.5 pb-3 pt-1">
           <IconButton
@@ -93,6 +98,14 @@ export function Sidebar({ onAddBot }: SidebarProps) {
               />
             )}
           </span>
+          <IconButton
+            round
+            active={roomsOpen}
+            label="协作空间"
+            onClick={() => setRoomsOpen(!roomsOpen)}
+          >
+            <MessagesSquare />
+          </IconButton>
           <IconButton
             round
             active={quotaStatsOpen}
@@ -140,7 +153,9 @@ export function Sidebar({ onAddBot }: SidebarProps) {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-2 pt-0.5 pb-2">
+        <PinnedRoomsList />
         <BotList />
+        <RoomList />
       </div>
 
       <footer className="no-drag flex shrink-0 items-center justify-between gap-1.5 border-t border-ink/[0.06] px-2.5 py-2">
@@ -158,6 +173,14 @@ export function Sidebar({ onAddBot }: SidebarProps) {
           </span>
           <Settings className="size-4 shrink-0 text-ink-secondary" aria-hidden />
         </button>
+        <IconButton
+          round
+          active={roomsOpen}
+          label="协作空间"
+          onClick={() => setRoomsOpen(!roomsOpen)}
+        >
+          <MessagesSquare />
+        </IconButton>
         <IconButton
           round
           active={quotaStatsOpen}

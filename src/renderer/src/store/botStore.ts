@@ -133,6 +133,10 @@ export interface BotHubState {
   settingsOpen: boolean
   /** Open the quota usage dashboard (shared by desktop and mobile). */
   quotaStatsOpen: boolean
+  /** Open the collaboration rooms full-page view. */
+  roomsOpen: boolean
+  /** Selected collaboration room id. */
+  selectedRoomId: string | null
   settingsTab:
     | 'overview'
     | 'general'
@@ -175,6 +179,8 @@ export interface BotHubState {
   setOnboardingOpen: (open: boolean) => void
   toggleWebSession: () => void
   setQuotaStatsOpen: (open: boolean) => void
+  setRoomsOpen: (open: boolean, roomId?: string | null) => void
+  selectRoom: (roomId: string) => void
   setSettingsOpen: (
     open: boolean,
     tab?:
@@ -671,6 +677,8 @@ export const useBotStore = create<BotHubState>()(
     webSessionOpen: false,
     settingsOpen: false,
     quotaStatsOpen: false,
+    roomsOpen: false,
+    selectedRoomId: null,
     settingsTab: 'overview',
     activeDocument: null,
     replyingTo: {},
@@ -717,6 +725,8 @@ export const useBotStore = create<BotHubState>()(
         }
         return {
           selectedBotId: botId,
+          roomsOpen: false,
+          selectedRoomId: null,
           settingsOpen: false,
           quotaStatsOpen: false,
           activeDocument:
@@ -850,6 +860,20 @@ export const useBotStore = create<BotHubState>()(
       set({
         quotaStatsOpen: open,
         ...(open ? { settingsOpen: false, infoPanelOpen: false } : {})
+      }),
+    setRoomsOpen: (open, roomId) =>
+      set((state) => ({
+        roomsOpen: open,
+        selectedRoomId: roomId === undefined ? state.selectedRoomId : roomId,
+        ...(open ? { settingsOpen: false, quotaStatsOpen: false, infoPanelOpen: true } : {})
+      })),
+    selectRoom: (roomId) =>
+      set({
+        roomsOpen: true,
+        selectedRoomId: roomId,
+        settingsOpen: false,
+        quotaStatsOpen: false,
+        infoPanelOpen: true
       }),
     setSettingsOpen: (open, tab) =>
       set((state) => ({
@@ -1070,6 +1094,7 @@ export const useBotStore = create<BotHubState>()(
 
     receiveMessage: (incoming) =>
       set((state) => {
+        if (incoming.conversationId.startsWith('room-turn-')) return state
         const botId = state.bots.some((b) => b.id === incoming.conversationId)
           ? incoming.conversationId
           : state.bots.find((b) => b.accountIds.includes(incoming.accountId))?.id
@@ -1150,6 +1175,7 @@ export const useBotStore = create<BotHubState>()(
 
     applyMessageDelta: (messageId, conversationId, accountId, text, widgets, tools, media, richWidgets, sessionId) =>
       set((state) => {
+        if (conversationId.startsWith('room-turn-')) return state
         const botId = state.bots.some((b) => b.id === conversationId)
           ? conversationId
           : state.bots.find((b) => b.accountIds.includes(accountId))?.id
@@ -2610,6 +2636,8 @@ export const useBotStore = create<BotHubState>()(
         typing: {},
         activity: {},
         selectedBotId: null,
+        roomsOpen: false,
+        selectedRoomId: null,
         collapsedGroups: {}
       })
     }

@@ -3,6 +3,8 @@
  * Shared so channel names and payload shapes cannot drift apart.
  */
 
+import type { HarkBrowserPreview } from './harkBrowserPreview'
+
 export const WEB_VIEW_CHANNELS = {
   create: 'bothub:web-view:create',
   attach: 'bothub:web-view:attach',
@@ -87,11 +89,13 @@ export const MUSE_CHANNELS = {
   uploadWorkspaceFile: 'bothub:muse:files:upload',
   getProxy: 'bothub:muse:proxy:get',
   setProxy: 'bothub:muse:proxy:set',
+  testProxy: 'bothub:muse:proxy:test',
   listProxyPool: 'bothub:muse:proxy-pool:list',
   importProxyPool: 'bothub:muse:proxy-pool:import',
   removeProxyPoolItem: 'bothub:muse:proxy-pool:remove',
   clearProxyPool: 'bothub:muse:proxy-pool:clear',
   assignProxyPool: 'bothub:muse:proxy-pool:assign',
+  testProxyPool: 'bothub:muse:proxy-pool:test',
   assignNextAvailableProxy: 'bothub:muse:proxy-pool:assign-next',
   subscribeProxyPool: 'bothub:muse:proxy-pool:subscribe',
   listSubscriptionSources: 'bothub:muse:proxy-pool:subscription-sources',
@@ -284,6 +288,22 @@ export interface MuseProxyConfigInput {
   username?: string
   /** Empty string keeps previous password when hasPassword. */
   password?: string
+}
+
+export interface MuseProxyTestResult {
+  ok: boolean
+  /** Round-trip latency in milliseconds when reachable. */
+  latencyMs?: number
+  /** HTTP status received from the probe endpoint. */
+  statusCode?: number
+  /** Detected egress IP when returned by the probe endpoint. */
+  exitIp?: string
+  /** Detected 2-letter country/region code (e.g. US, JP, SG). */
+  country?: string
+  /** Concise error reason when `ok === false`. */
+  error?: string
+  /** Timestamp (epoch ms) when the check finished. */
+  checkedAt: number
 }
 
 export interface MuseProxyPoolItemView {
@@ -929,6 +949,13 @@ export type HarkMainEvent =
       activityEmoji?: string
       busy: boolean
     }
+  | {
+      type: 'projectHistory'
+      accountId: string
+      conversationId: string
+      /** Browser/screenshot preview carried by newer Hark snapshots. */
+      browserPreview?: HarkBrowserPreview | null
+    }
 
 export interface HarkOpenLoginRequest {
   accountId: string
@@ -986,6 +1013,14 @@ export type HarkRpcRequest =
       url?: string
       fileId?: string
       name?: string
+      requestId?: string
+      preview?: boolean
+    }
+  | {
+      accountId: string
+      op: 'browserPreview'
+      conversationId?: string
+      requestId?: string
     }
   | {
       accountId: string

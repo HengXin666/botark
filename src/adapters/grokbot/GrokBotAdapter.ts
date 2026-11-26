@@ -468,11 +468,16 @@ export class GrokBotAdapter implements PlatformAdapter {
 
     let agents = this.agentsByAccount.get(message.accountId)
     if (!agents?.length) agents = await this.refreshAgents(message.accountId)
-    const agentId = this.agentForConversation.get(message.conversationId) ?? agents[0]?.id
+    const roomTurn = message.conversationId.startsWith('room-turn-')
+    const agentId = message.agentId ?? this.agentForConversation.get(message.conversationId) ?? agents[0]?.id
     if (!agentId) throw new AdapterError('unknown-account', 'No Grok Bot agents on this account.')
 
-    this.agentForConversation.set(message.conversationId, agentId)
-    void this.syncWatchTargets(message.accountId)
+    // Room turns are one-off conversations; remembering them would grow the
+    // map per turn and let a member's agent leak into the next room.
+    if (!roomTurn) {
+      this.agentForConversation.set(message.conversationId, agentId)
+      void this.syncWatchTargets(message.accountId)
+    }
 
     const messageId = createId('tNu')
     const sessionId = message.sessionId ?? ''

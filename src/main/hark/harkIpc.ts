@@ -39,6 +39,7 @@ import { cancelHarkLogin, onHarkLoginEvent, openHarkLoginWindow } from './harkLo
 import { loadAccountProxyUrl } from '../muse/accountProxy'
 import { guessMediaMimeFromName } from '../mediaMime'
 import { probeHarkSession } from './harkSession'
+import { currentHarkBrowser } from '@shared/harkBrowserPreview'
 import {
   onHarkStatusEvent,
   setHarkNotificationClickHandler,
@@ -429,6 +430,12 @@ async function runHarkRpc(req: HarkRpcRequest): Promise<HarkRpcResponse> {
           name: req.name
         })
         return { ok: true, data: downloaded }
+      }
+      case 'browserPreview': {
+        const conversationId = typeof req.conversationId === 'string' ? req.conversationId.trim() : ''
+        if (!conversationId) return { ok: true, data: null }
+        const snap = await fetchConversationSnapshotSummary(req.accountId, conversationId)
+        return { ok: true, data: currentHarkBrowser(snap?.panels ?? []) }
       }
       case 'call': {
         if (typeof req.path !== 'string' || !req.path.trim()) {

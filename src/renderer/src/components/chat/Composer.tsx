@@ -3,6 +3,7 @@ import type { AttachmentMeta } from '@adapters/types'
 import { createId } from '@shared/id'
 import { ArrowUp, CornerDownRight, FileText, Film, Loader2, LogIn, Music, Plus, PlugZap, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { WorkspaceTools } from '@/rooms/WorkspaceTools'
 import { IconButton } from '@/components/ui/IconButton'
 import { cn } from '@/lib/cn'
 import { formatBytes } from '@/lib/format'
@@ -382,6 +383,20 @@ export function Composer({ bot, account, typing = false, onSend, onCancel, onCon
                 <IconButton label={t('Attach files')} onClick={() => fileInputRef.current?.click()}>
                   <Plus />
                 </IconButton>
+                <WorkspaceTools
+                  key={bot.id + ':' + bot.activeAccountId}
+                  scope={bot.id + ':' + bot.activeAccountId}
+                  recipient={bot.name}
+                  variant="popover"
+                  hermesAccount={bot.platformId === 'hermes' ? bot.activeAccountId : undefined}
+                  append={({ label, text: result }) => {
+                    setText((prev) => [prev, `[${label}]\n${result}`].filter(Boolean).join('\n\n'))
+                    requestAnimationFrame(() => {
+                      resize()
+                      textareaRef.current?.focus()
+                    })
+                  }}
+                />
               </>
             )}
             <textarea

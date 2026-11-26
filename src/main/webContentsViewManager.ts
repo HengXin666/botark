@@ -13,9 +13,14 @@ import type { CreateWebViewRequest, WebViewBounds, WebViewInfo } from '@shared/i
  * URL). Platform automation/protocol work will build on top of this.
  */
 
+const IDLE_HIBERNATE_MS = 90_000
+const MAX_WARM_DETACHED_VIEWS = 1
+
 interface ManagedView {
   info: Omit<WebViewInfo, 'attached'>
   view: WebContentsView
+  lastUsedAt: number
+  idleTimer?: ReturnType<typeof setTimeout>
 }
 
 export function webViewId(botId: string, accountId: string): string {
@@ -84,7 +89,16 @@ export class WebContentsViewManager {
   create(request: CreateWebViewRequest): WebViewInfo {
     const viewId = webViewId(request.botId, request.accountId)
     const existing = this.views.get(viewId)
-    if (existing) return this.describe(existing)
+    if (existing) {
+      existing.lastUsedAt = Date.now()
+      if (request.url && isHttpUrl(request.url) && request.url !== existing.info.url) {
+        existing.info.url = request.url
+        if (!existing.view.webContents.isDestroyed()) {
+          void existing.view.webContents.loadURL(request.url).catch(() => {})
+        }
+      }
+      return this.describe(existing)
+    }
 
     if (request.url !== undefined && !isHttpUrl(request.url)) {
       throw new Error(`Refusing to load non-http(s) URL: ${request.url}`)
@@ -119,7 +133,8 @@ export class WebContentsViewManager {
 
     const managed: ManagedView = {
       info: { viewId, botId: request.botId, accountId: request.accountId, partition, url: request.url ?? 'about:placeholder' },
-      view
+      view,
+      lastUsedAt: Date.now()
     }
     this.views.set(viewId, managed)
     return this.describe(managed)
@@ -127,6 +142,11 @@ export class WebContentsViewManager {
 
   attach(viewId: string, bounds: WebViewBounds): WebViewInfo {
     const managed = this.require(viewId)
+    managed.lastUsedAt = Date.now()
+    if (managed.idleTimer) {
+      clearTimeout(managed.idleTimer)
+      managed.idleTimer = undefined
+    }
     if (this.attachedId && this.attachedId !== viewId) this.detach(this.attachedId)
     if (this.attachedId !== viewId) {
       this.window.contentView.addChildView(managed.view)
@@ -146,6 +166,13 @@ export class WebContentsViewManager {
     if (!managed || this.attachedId !== viewId) return
     this.window.contentView.removeChildView(managed.view)
     this.attachedId = null
+    managed.lastUsedAt = Date.now()
+    this.trimDetachedViews()
+    if (managed.idleTimer) clearTimeout(managed.idleTimer)
+    managed.idleTimer = setTimeout(() => {
+      if (this.attachedId === viewId) return
+      this.destroy(viewId)
+    }, IDLE_HIBERNATE_MS)
   }
 
   detachAll(): void {
@@ -156,13 +183,28 @@ export class WebContentsViewManager {
     const managed = this.views.get(viewId)
     if (!managed) return
     if (!this.window.isDestroyed()) this.detach(viewId)
+    if (managed.idleTimer) {
+      clearTimeout(managed.idleTimer)
+      managed.idleTimer = undefined
+    }
     this.views.delete(viewId)
     if (!managed.view.webContents.isDestroyed()) managed.view.webContents.close()
   }
 
   /** Return the native view for advanced integrations (e.g. Muse RPC). */
   getView(viewId: string): WebContentsView | undefined {
-    return this.views.get(viewId)?.view
+    const managed = this.views.get(viewId)
+    if (!managed) return undefined
+    managed.lastUsedAt = Date.now()
+    return managed.view
+  }
+
+  /** Keep only the newest detached view warm; close older Chromium renderers. */
+  private trimDetachedViews(): void {
+    const detached = [...this.views.entries()]
+      .filter(([id]) => id !== this.attachedId)
+      .sort((left, right) => right[1].lastUsedAt - left[1].lastUsedAt)
+    for (const [viewId] of detached.slice(MAX_WARM_DETACHED_VIEWS)) this.destroy(viewId)
   }
 
 

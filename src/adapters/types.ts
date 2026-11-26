@@ -57,6 +57,12 @@ export interface OutgoingMessage {
   sessionId?: string
   /** Hark: whether the target thread is the main conversation or a project. */
   sessionKind?: 'main' | 'project'
+  /** Optional agent id for multi-agent platforms (rooms). */
+  agentId?: string
+  /** Optional Hermes session key for rooms-scoped Hermes conversations. */
+  hermesSessionKey?: string
+  /** Optional abort signal for room turn cancellation. */
+  signal?: AbortSignal
   /** Optional message id being replied to (e.g. Grok reply_to_id). */
   replyToId?: string
   /** Optional quoted snippet when replying. */
