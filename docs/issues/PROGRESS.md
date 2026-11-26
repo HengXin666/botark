@@ -25,7 +25,6 @@
 
 ## 待办/风险
 
-- 盲审阻断问题修复。
-- Hark 真实账号的房间/portal smoke、真实代理测速 smoke。
+- 无已知代码阻断；Hark 真实账号的房间/Portal smoke、真实代理测速 smoke 待补。
 - 打包时 cloudflared 二进制分发需在 electron-builder 中补 `extraResources`（当前开发机有 /usr/bin/cloudflared）。
-- 管理员派发对 Hark 作为 coordinator 的行为仍需真实账号确认（模型会对多 Agent 框架有限制）。
+- Hark coordinator 已在 UI、setRoomAdministrator 与 reconcile 三层禁止，避免多 Agent 框架冲突。
