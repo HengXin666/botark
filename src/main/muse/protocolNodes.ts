@@ -1,4 +1,5 @@
 import * as http from 'node:http'
+import * as https from 'node:https'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, safeStorage } from 'electron'
@@ -46,6 +47,34 @@ function getJson(url: string): Promise<unknown> {
   })
 }
 
+function getText(url: string): Promise<string> {
+  return new Promise((resolve) => {
+    const req = http.get(url, { timeout: 20000 }, (res) => {
+      let b = ''
+      res.setEncoding('utf8')
+      res.on('data', (c) => (b += c))
+      res.on('end', () => resolve(b))
+    })
+    req.on('error', () => resolve(''))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve('')
+    })
+  })
+}
+
+async function fetchAliveExport(limit: number): Promise<Array<{ uri: string; score: number }>> {
+  const out: Array<{ uri: string; score: number }> = []
+  for (const kind of ['non-residential', 'residential']) {
+    const text = await getText(BASE_URL + '/api/export/subscription?kind=' + kind + '&alive_only=true')
+    for (const line of text.split(/\r?\n/)) {
+      const uri = line.trim()
+      if (uri.startsWith('vless://')) out.push({ uri, score: 0 })
+    }
+  }
+  return out.slice(0, Math.max(0, limit))
+}
+
 function parseVless(uri: string): MihomoNode | null {
   try {
     const u = new URL(uri)
@@ -85,7 +114,7 @@ function probeLocal(port: number, timeoutMs: number): Promise<string | undefined
     }
     try {
       const agent = new (require('socks-proxy-agent').SocksProxyAgent)('socks5h://127.0.0.1:' + port)
-      const req = http.get('https://api.ipify.org', { agent, timeout: timeoutMs }, (res) => {
+      const req = https.get('https://api.ipify.org', { agent, timeout: timeoutMs }, (res) => {
         let b = ''
         res.on('data', (c) => (b += c))
         res.on('end', () => fin(res.statusCode === 200 && b.includes('.') ? b.trim() : undefined))
@@ -140,19 +169,21 @@ export async function listSyncedProtocolNodes(limit = 24): Promise<string[]> {
  * See the [builtin mihomo note](.agents/notes/implemented/architecture/2026-11-22-botark-builtin-mihomo-vless-egress.md).
  */
 export async function syncProtocolNodes(limit = 4000, onProgress?: (p: { done: number; alive: number; total: number }) => void): Promise<ProtocolLiveNode[]> {
-  const raw: Array<{ uri: string; score: number }> = []
-  for (const proto of PROTOCOLS) {
-    for (let off = 0; off < limit; off += PAGE) {
-      const data = (await getJson(BASE_URL + '/api/nodes?protocol=' + proto + '&quality=ok&limit=' + PAGE + '&offset=' + off)) as {
-        items?: NodeMaintItem[]
-      } | null
-      const items = data?.items || []
-      if (items.length === 0) break
-      for (const it of items) {
-        const uri = it.extra?.uri
-        if (uri) raw.push({ uri, score: it.score || 0 })
+  const raw: Array<{ uri: string; score: number }> = await fetchAliveExport(limit)
+  if (raw.length === 0) {
+    for (const proto of PROTOCOLS) {
+      for (let off = 0; off < limit; off += PAGE) {
+        const data = (await getJson(BASE_URL + '/api/nodes?protocol=' + proto + '&limit=' + PAGE + '&offset=' + off)) as {
+          items?: NodeMaintItem[]
+        } | null
+        const items = data?.items || []
+        if (items.length === 0) break
+        for (const it of items) {
+          const uri = it.extra?.uri
+          if (uri) raw.push({ uri, score: it.score || 0 })
+        }
+        if (items.length < PAGE) break
       }
-      if (items.length < PAGE) break
     }
   }
   const seen = new Set<string>()
@@ -166,7 +197,8 @@ export async function syncProtocolNodes(limit = 4000, onProgress?: (p: { done: n
     candidates.push({ node, uri: r.uri, score: r.score })
   }
   const total = candidates.length
-  const ports = await ensureNodesPorts(candidates.map((c) => c.node))
+  if (total === 0) return []
+  const ports = await ensureNodesPorts(candidates.map((c) => c.node), { replace: true })
   const live: ProtocolLiveNode[] = []
   const CONC = 80
   let idx = 0

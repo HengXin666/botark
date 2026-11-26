@@ -355,18 +355,20 @@ export function SettingsView() {
     setBusy(true)
     setError(undefined)
     setHint(undefined)
-    setAssignProgress('正在从 node-maint 拉取并按延迟排序的可用 http/https 节点...')
+    setAssignProgress('正在从 node-maint 同步 http/https 与 vless 协议节点...')
     try {
       const res = await muse.syncNodeMaint()
+      const protocol = muse.syncProtocol ? await muse.syncProtocol() : { live: 0 }
+      const live = res.live + protocol.live
       const ids = allAccounts.map((a) => a.id)
-      if (ids.length > 0 && muse.assignProxyPool && res.live > 0) {
+      if (ids.length > 0 && muse.assignProxyPool && live > 0) {
         const assigned = await muse.assignProxyPool(ids, [])
         setPool(assigned.items)
         setAssignProgress(undefined)
-        setHint(`已从 node-maint 同步 ${res.live} 个实测可出网节点，并分配给 ${assigned.assignedCount} / ${ids.length} 个账号`)
+        setHint(`已从 node-maint 同步 ${live} 个实测可出网节点（http/https ${res.live} + vless ${protocol.live}），并分配给 ${assigned.assignedCount} / ${ids.length} 个账号`)
       } else {
         setAssignProgress(undefined)
-        setHint(res.live > 0 ? `已同步 ${res.live} 个可用节点` : 'node-maint 当前无实测可出网的 http/https 节点')
+        setHint(live > 0 ? `已同步 ${live} 个可用节点` : 'node-maint 当前无实测可出网的 http/https 或 vless 节点')
       }
       await refreshProxiesAndPool()
     } catch (err) {
@@ -2139,11 +2141,11 @@ export function SettingsView() {
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <div className="text-[13px] font-medium text-ink">订阅与代理导入概览</div>
-                      <p className="mt-0.5 text-[11px] text-ink-muted">从 node-maint 节点情报服务按延迟/评分获取实测可出网的 http 节点，自动分配给所有账号。</p>
+                      <p className="mt-0.5 text-[11px] text-ink-muted">从 node-maint 节点情报服务获取实测可出网的 http/https 与 vless 协议节点，自动分配给所有账号。</p>
                     </div>
                     <div className="flex gap-2">
                       <Button variant="primary" size="sm" disabled={busy || allAccounts.length === 0} onClick={() => void handleSyncNodeMaint()}>
-                        <Shuffle className="size-3.5" /> 同步 node-maint http 节点
+                        <Shuffle className="size-3.5" /> 同步 node-maint 全部节点
                       </Button>
                       <Button variant="secondary" size="sm" disabled={busy || allAccounts.length === 0} onClick={() => void handleSyncProtocol()}>
                         <Shuffle className="size-3.5" /> 同步 vless 协议节点

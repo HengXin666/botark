@@ -21,6 +21,7 @@ import {
   type MuseProxyMode
 } from './accountProxy'
 import { saveSyncedProtocolNodes, syncProtocolNodes } from './protocolNodes'
+import { mihomoStatus } from './mihomoManager'
 import { rebindGrokAccountWatch } from '../grok/grokWatchManager'
 import { rebindDotAccountNetwork } from '../dot/dotClient'
 import { cancelHarkWatch } from '../hark/harkClient'
@@ -38,6 +39,13 @@ function rebindNonMuseAccountStreams(accountId: string): void {
   rebindGrokAccountWatch(accountId)
   rebindDotAccountNetwork(accountId)
   cancelHarkWatch(accountId)
+}
+
+async function fillPoolFromMihomoBindings(): Promise<number> {
+  const ports = mihomoStatus().ports
+  if (ports.length === 0) return 0
+  await importProxyPool(ports.map((port) => 'socks5://127.0.0.1:' + port).join('\n'), 'socks5')
+  return ports.length
 }
 
 export function attachMuseSessionManager(window: BrowserWindow, views: WebContentsViewManager): MuseSessionManager {
@@ -378,7 +386,11 @@ export function registerMuseIpc(): void {
 
   ipcMain.handle(MUSE_CHANNELS.assignNextAvailableProxy, async (event, accountId: unknown) => {
     if (typeof accountId !== 'string' || !accountId) throw new TypeError('Invalid accountId')
-    const result = await assignOneUnusedProxy(accountId)
+    let result = await assignOneUnusedProxy(accountId)
+    if (!result.assigned && result.probed === 0) {
+      const imported = await fillPoolFromMihomoBindings().catch(() => 0)
+      if (imported > 0) result = await assignOneUnusedProxy(accountId)
+    }
     if (!result.assigned) return result
     await managerFor(event).applyAccountProxy(accountId).catch(() => undefined)
     rebindNonMuseAccountStreams(accountId)

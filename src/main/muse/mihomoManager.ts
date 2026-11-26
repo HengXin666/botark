@@ -232,9 +232,21 @@ export async function ensureNodePort(node: MihomoNode): Promise<number> {
 }
 
 /** Assign ports to many nodes at once, writing the config and starting mihomo a single time. */
-export async function ensureNodesPorts(nodes: MihomoNode[]): Promise<number[]> {
+export async function ensureNodesPorts(
+  nodes: MihomoNode[],
+  options?: { replace?: boolean }
+): Promise<number[]> {
   const ports: number[] = []
   let changed = false
+  if (options?.replace) {
+    const wanted = new Set(nodes.map((node) => node.server + ':' + node.port + ':' + node.uuid))
+    for (const [port, existing] of nodeByPort.entries()) {
+      if (!wanted.has(existing.server + ':' + existing.port + ':' + existing.uuid)) {
+        nodeByPort.delete(port)
+        changed = true
+      }
+    }
+  }
   for (const node of nodes) {
     let found = 0
     for (const [port, existing] of nodeByPort.entries()) {
@@ -248,7 +260,10 @@ export async function ensureNodesPorts(nodes: MihomoNode[]): Promise<number[]> {
     }
     ports.push(found)
   }
-  if (changed) await writeAndRestart()
+  if (changed) {
+    await writeAndRestart()
+    persistMihomoBindings()
+  }
   return ports
 }
 
