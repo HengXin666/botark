@@ -130,4 +130,4 @@ For production, prefer BOTARK_WEB_PASSWORD_HASH or a file-based secret over pass
 3. Keep `/data` on an encrypted volume and back it up; it contains platform session cookies and account stores.
 4. Treat the web UI as a full remote control: the gateway exposes the same high-privilege IPC surface as the desktop app (including workspace tools).
 5. Treat generated API keys as admin credentials. Create one per client in Settings, keep it out of URLs/logs, and revoke it immediately if leaked.
-6. Rotate the password and restart the container to invalidate all existing sessions.
+6. Rotate the password from **Settings & Accounts → 常规、分组与安全 → Web 管理员密码**; the change revokes all existing browser sessions. If you ever get locked out, remove the persistent `/data/web-password.hash` and restart with a new `BOTARK_WEB_PASSWORD`/hash in the environment.
