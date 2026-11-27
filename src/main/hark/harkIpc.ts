@@ -4,6 +4,8 @@ import {
   type HarkAuthStatus,
   type HarkImportCredentialsRequest,
   type HarkOpenLoginRequest,
+  type HarkRemoteImportRequest,
+  type HarkRemoteImportRecord,
   type HarkRpcRequest,
   type HarkRpcResponse,
   type MuseMediaPartView,
@@ -36,6 +38,7 @@ import {
   type HarkUploadedAttachment
 } from './harkClient'
 import { cancelHarkLogin, onHarkLoginEvent, openHarkLoginWindow } from './harkLogin'
+import { importRemoteHarkAccount, listRemoteHarkImports } from './remoteHarkStore'
 import { loadAccountProxyUrl } from '../muse/accountProxy'
 import { guessMediaMimeFromName } from '../mediaMime'
 import { probeHarkSession } from './harkSession'
@@ -561,6 +564,17 @@ export function registerHarkIpc(): void {
       })
     }
     return st
+  })
+
+  ipcMain.handle(HARK_CHANNELS.remoteList, async () => listRemoteHarkImports())
+
+  ipcMain.handle(HARK_CHANNELS.remoteImport, async (_event, request: unknown) => {
+    if (typeof request !== 'object' || request === null) {
+      throw new TypeError('Invalid hark remote import request')
+    }
+    const record: HarkRemoteImportRecord = await importRemoteHarkAccount(request as HarkRemoteImportRequest)
+    broadcast({ type: 'remoteImport', account: record })
+    return record
   })
 
   ipcMain.handle(HARK_CHANNELS.clearAuth, async (_event, accountId: unknown) => {

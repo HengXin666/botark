@@ -81,6 +81,28 @@ curl -N -H "Authorization: Bearer $BOTARK_API_KEY" \
 }
 ```
 
+### `POST /api/v1/accounts/import`
+
+Push a freshly registered Hark account from a registration machine. The
+session is written into the server-side Chromium partition and remembered as a
+remote import; the token is never returned or written to the audit log.
+
+```bash
+curl -X POST -H "Authorization: Bearer $BOTARK_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"new@example.com","sessionToken":"<__Secure-hark.session_token>"}' \
+  https://your-domain.example.com/api/v1/accounts/import
+```
+
+```json
+{"ok":true,"account":{"accountId":"acc_hark_new_example_com","email":"new@example.com","displayName":"new@example.com","importedAt":1790000000000}}
+```
+
+### `GET /api/v1/accounts/imports`
+
+Lists accounts pushed through the import endpoint (metadata only, no tokens).
+The Web UI materialises a Hark bot for each one on its next load.
+
 ### `GET /api/v1/bots`
 
 Returns bots with `activeAccountId`, `activeSessionId`, `activeSessionTitle`,

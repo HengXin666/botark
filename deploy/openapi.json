@@ -161,6 +161,106 @@
         }
       }
     },
+    "/accounts/import": {
+      "post": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "importHarkAccount",
+        "summary": "Import a Hark account session from a registration machine",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "sessionToken"
+                ],
+                "properties": {
+                  "accountId": {
+                    "type": "string",
+                    "description": "Optional stable id; defaults to acc_hark_<email slug>"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "sessionToken": {
+                    "type": "string",
+                    "description": "Raw __Secure-hark.session_token value or Cookie header"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Imported account metadata (never returns the session token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "account": {
+                      "$ref": "#/components/schemas/RemoteHarkAccount"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid session"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/accounts/imports": {
+      "get": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "listImportedHarkAccounts",
+        "summary": "List accounts imported through the remote sync API",
+        "responses": {
+          "200": {
+            "description": "Imported account metadata (no tokens)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "accounts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RemoteHarkAccount"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
     "/bots": {
       "get": {
         "tags": [
@@ -700,6 +800,29 @@
           }
         },
         "additionalProperties": true
+      },
+      "RemoteHarkAccount": {
+        "type": "object",
+        "properties": {
+          "accountId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "importedAt": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "accountId",
+          "email",
+          "importedAt"
+        ]
       },
       "Bot": {
         "type": "object",

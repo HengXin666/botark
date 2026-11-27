@@ -895,6 +895,8 @@ export const HARK_CHANNELS = {
   cancelLogin: 'bothub:hark:cancel-login',
   authStatus: 'bothub:hark:auth-status',
   importCredentials: 'bothub:hark:import-credentials',
+  remoteImport: 'bothub:hark:remote-import',
+  remoteList: 'bothub:hark:remote-list',
   clearAuth: 'bothub:hark:clear-auth',
   rpc: 'bothub:hark:rpc',
   event: 'bothub:hark:event'
@@ -956,6 +958,10 @@ export type HarkMainEvent =
       /** Browser/screenshot preview carried by newer Hark snapshots. */
       browserPreview?: HarkBrowserPreview | null
     }
+  | {
+      type: 'remoteImport'
+      account: HarkRemoteImportRecord
+    }
 
 export interface HarkOpenLoginRequest {
   accountId: string
@@ -964,6 +970,20 @@ export interface HarkOpenLoginRequest {
 export interface HarkImportCredentialsRequest {
   accountId: string
   rawInput: string
+}
+
+export interface HarkRemoteImportRequest {
+  accountId?: string
+  email: string
+  sessionToken: string
+  displayName?: string
+}
+
+export interface HarkRemoteImportRecord {
+  accountId: string
+  email: string
+  displayName: string
+  importedAt: number
 }
 
 export interface HarkAuthStatus {

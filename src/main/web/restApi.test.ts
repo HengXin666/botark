@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { MobileWorkspaceSnapshot } from '@shared/mobileSync'
+import { HARK_CHANNELS } from '@shared/ipc'
 import { RestApi } from './restApi'
 
 const TOKEN = 'test-api-token-1234567890'
@@ -65,6 +66,12 @@ const api = new RestApi({
     if (channel === 'bothub:hark:rpc' && request.op === 'call') {
       return { ok: true, data: { meters: { harkTokens: { dailyUsed: 10, dailyLimit: 100 } } } }
     }
+    if (channel === HARK_CHANNELS.remoteList) {
+      return [{ accountId: 'acc_hark_new', email: 'new@example.com', displayName: 'New', importedAt: 1 }]
+    }
+    if (channel === HARK_CHANNELS.remoteImport) {
+      return { accountId: 'acc_hark_new', email: String(request.email), displayName: 'New', importedAt: 2 }
+    }
     return { ok: false, status: 404, message: 'not mocked' }
   },
   apiToken: TOKEN
@@ -123,6 +130,20 @@ describe('rest api v1', () => {
     expect(accounts.body.accounts[0]).toMatchObject({ id: 'h1', platformId: 'hark', botId: 'bot1' })
     const bots = await json('/api/v1/bots', auth())
     expect(bots.body.bots[0]).toMatchObject({ id: 'bot1', activeAccountId: 'h1' })
+  })
+
+  it('imports and lists remote Hark accounts without returning the token', async () => {
+    const imported = await json('/api/v1/accounts/import', auth({
+      method: 'POST',
+      body: JSON.stringify({ email: 'new@example.com', sessionToken: 'secret-token' })
+    }))
+    expect(imported.status).toBe(200)
+    expect(imported.body.account).toMatchObject({ accountId: 'acc_hark_new', email: 'new@example.com' })
+    expect(JSON.stringify(imported.body)).not.toContain('secret-token')
+
+    const listed = await json('/api/v1/accounts/imports', auth())
+    expect(listed.status).toBe(200)
+    expect(listed.body.accounts[0]).toMatchObject({ accountId: 'acc_hark_new' })
   })
 
   it('lists Hark projects and project messages', async () => {

@@ -21,6 +21,7 @@ import { startPrefsSync, usePrefsStore } from '@/store/prefsStore'
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getBridge } from '@/lib/bridge'
 import { syncHarkPool } from '@/lib/harkPoolSync'
+import { syncRemoteHarkAccounts } from '@/lib/remoteHarkSync'
 
 export default function App() {
   const settingsOpen = useBotStore((s) => s.settingsOpen)
@@ -37,6 +38,22 @@ export default function App() {
     return s.bots.some((b) => b.id === s.selectedBotId)
   })
   const setAddBotOpen = useBotStore((s) => s.setAddBotOpen)
+
+  useEffect(() => {
+    const hark = getBridge()?.hark
+    if (!hark?.remoteList) return
+    const refresh = (): void => {
+      void syncRemoteHarkAccounts().catch((error) =>
+        console.warn('[hark-remote] sync failed', error)
+      )
+    }
+    refresh()
+    // The REST import handler broadcasts this event after each registration
+    // machine push, so an already-open Web UI picks up the new account too.
+    return hark.onEvent((event) => {
+      if (event.type === 'remoteImport') refresh()
+    })
+  }, [])
 
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('harkPoolSync') !== '1') return

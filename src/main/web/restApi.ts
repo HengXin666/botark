@@ -10,6 +10,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { ApiKeyIdentity } from '@shared/apiKeys'
+import { HARK_CHANNELS } from '@shared/ipc'
 import type { MobileWorkspaceSnapshot } from '@shared/mobileSync'
 import { parseHarkConversations } from '@shared/harkProjects'
 
@@ -605,6 +606,19 @@ export class RestApi {
 
       if (parts[2] === 'workspace' && parts.length === 3 && method === 'GET') {
         sendJson(res, 200, { ok: true, workspace: this.snapshot() })
+        return true
+      }
+
+      if (parts[2] === 'accounts' && parts[3] === 'imports' && parts.length === 4 && method === 'GET') {
+        const accounts = await this.invokeIpc(HARK_CHANNELS.remoteList, [])
+        sendJson(res, 200, { ok: true, accounts })
+        return true
+      }
+
+      if (parts[2] === 'accounts' && parts[3] === 'import' && parts.length === 4 && method === 'POST') {
+        const body = await readJsonBody(req)
+        const account = await this.invokeIpc(HARK_CHANNELS.remoteImport, [body])
+        sendJson(res, 200, { ok: true, account })
         return true
       }
 

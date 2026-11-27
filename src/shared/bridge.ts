@@ -31,6 +31,8 @@ import type {
   HarkMainEvent,
   HarkOpenLoginRequest,
   HarkImportCredentialsRequest,
+  HarkRemoteImportRequest,
+  HarkRemoteImportRecord,
   HarkAuthStatus,
   HarkRpcRequest,
   HarkRpcResponse,
@@ -203,6 +205,9 @@ export interface HarkBridge {
   cancelLogin(accountId: string): Promise<HarkAuthStatus>
   authStatus(accountId: string): Promise<HarkAuthStatus>
   importCredentials(request: HarkImportCredentialsRequest): Promise<HarkAuthStatus>
+  /** Accounts pushed by a registration machine through the REST API. */
+  remoteList(): Promise<HarkRemoteImportRecord[]>
+  remoteImport(request: HarkRemoteImportRequest): Promise<HarkRemoteImportRecord>
   clearAuth(accountId: string): Promise<HarkAuthStatus>
   rpc(request: HarkRpcRequest): Promise<HarkRpcResponse>
   onEvent(listener: (event: HarkMainEvent) => void): () => void

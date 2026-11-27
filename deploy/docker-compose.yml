@@ -33,8 +33,9 @@ services:
       # Optional exact origin for browser-based external API clients.
       BOTARK_API_CORS_ORIGIN: "${BOTARK_API_CORS_ORIGIN:-}"
     ports:
-      # Keep the app port on loopback; publish it through SafeLine instead.
-      - "127.0.0.1:${BOTARK_WEB_PUBLISH_PORT:-29178}:29178"
+      # Default stays on loopback for a SafeLine/reverse-proxy deployment.
+      # Set BOTARK_WEB_BIND_ADDRESS=0.0.0.0 only when this host has no proxy.
+      - "${BOTARK_WEB_BIND_ADDRESS:-127.0.0.1}:${BOTARK_WEB_PUBLISH_PORT:-29178}:29178"
     volumes:
       - botark-data:/data
 
