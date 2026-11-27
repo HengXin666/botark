@@ -28,7 +28,7 @@ import {
 import { RestApi } from './restApi'
 import { getMobileWorkspaceSnapshot, subscribeMobileSyncEvents } from '../mobileSync/mobileSyncIpc'
 import { getApiKeyStore } from '../apiKeys/apiKeyIpc'
-import { WORKSPACE_METADATA_EVENT } from '@shared/workspaceMetadata'
+import { WORKSPACE_METADATA_CHANNEL } from '@shared/workspaceMetadata'
 
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown
 
@@ -154,16 +154,12 @@ function sendJson(res: ServerResponse, status: number, value: unknown): void {
   res.end(body)
 }
 
-async function applyWorkspaceMetadataToRenderer(payload: unknown): Promise<{ ok: true }> {
-  const win = hostWindow
-  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
-    throw new Error('workspace window is not ready')
+function applyWorkspaceMetadataToRenderer(payload: unknown): Promise<{ ok: true }> {
+  if (sockets.size === 0) {
+    throw new Error('没有已连接的 Web 管理界面，请先打开 BotArk Web 页面')
   }
-  const detail = JSON.stringify(payload)
-  await win.webContents.executeJavaScript(
-    'window.dispatchEvent(new CustomEvent(' + JSON.stringify(WORKSPACE_METADATA_EVENT) + ', { detail: ' + detail + ' })); true'
-  )
-  return { ok: true }
+  broadcastEvent(WORKSPACE_METADATA_CHANNEL, [payload])
+  return Promise.resolve({ ok: true })
 }
 
 function sendText(res: ServerResponse, status: number, body: string, contentType: string): void {

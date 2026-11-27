@@ -24,4 +24,8 @@ export interface WorkspaceMetadataPayload {
   removeEmptyGroups?: boolean
 }
 
-export const WORKSPACE_METADATA_EVENT = 'botark:workspace-metadata'
+export const WORKSPACE_METADATA_CHANNEL = 'botark:workspace:metadata'
+
+export interface WorkspaceMetadataBridge {
+  onApply: (listener: (payload: WorkspaceMetadataPayload) => void) => () => void
+}

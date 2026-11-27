@@ -66,6 +66,7 @@ import type {
 } from './mobileSync'
 import type { ApiKeysBridge } from './apiKeys'
 import type { WorkspaceBridge } from './workspace'
+import type { WorkspaceMetadataBridge } from './workspaceMetadata'
 import type { PortalBridge } from './workspacePortal'
 
 /** Controls embedded platform web sessions (Electron WebContentsView). */
@@ -291,4 +292,5 @@ export interface BotHubBridge {
   readonly vault?: VaultBridge
   readonly workspace?: WorkspaceBridge
   readonly workspacePortal?: PortalBridge
+  readonly workspaceMetadata?: WorkspaceMetadataBridge
 }

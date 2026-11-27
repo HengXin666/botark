@@ -1,5 +1,5 @@
 import type { WorkspaceMetadataPayload } from '@shared/workspaceMetadata'
-import { WORKSPACE_METADATA_EVENT } from '@shared/workspaceMetadata'
+import { getBridge } from '@/lib/bridge'
 import { useBotStore } from '@/store/botStore'
 
 export interface WorkspaceMetadataResult {
@@ -103,8 +103,7 @@ export function applyWorkspaceMetadata(payload: WorkspaceMetadataPayload): Works
 
 /** Install the renderer-side listener once for the Web runtime. */
 export function startWorkspaceMetadataBridge(): () => void {
-  const listener = (event: Event): void => {
-    const detail = (event as CustomEvent<WorkspaceMetadataPayload>).detail
+  const apply = (detail: WorkspaceMetadataPayload): void => {
     if (!detail || typeof detail !== 'object') return
     try {
       applyWorkspaceMetadata(detail)
@@ -112,6 +111,13 @@ export function startWorkspaceMetadataBridge(): () => void {
       console.warn('[workspace-metadata] apply failed', error)
     }
   }
-  window.addEventListener(WORKSPACE_METADATA_EVENT, listener)
-  return () => window.removeEventListener(WORKSPACE_METADATA_EVENT, listener)
+
+  const subscribe = getBridge()?.workspaceMetadata?.onApply
+  if (subscribe) return subscribe(apply)
+
+  // Plain browser without the gateway bridge (Vite dev mode): allow a local
+  // custom event for testing the merge logic without a server round-trip.
+  const listener = (event: Event): void => apply((event as CustomEvent<WorkspaceMetadataPayload>).detail)
+  window.addEventListener('botark:workspace-metadata', listener)
+  return () => window.removeEventListener('botark:workspace-metadata', listener)
 }

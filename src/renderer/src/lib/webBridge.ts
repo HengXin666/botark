@@ -22,6 +22,7 @@ import {
 import { API_KEY_CHANNELS, type ApiKeyAuditEntry, type ApiKeyCreateResult, type ApiKeyView } from '@shared/apiKeys'
 import { MOBILE_SYNC_CHANNELS } from '@shared/mobileSync'
 import { WORKSPACE_CHANNEL } from '@shared/workspace'
+import { WORKSPACE_METADATA_CHANNEL } from '@shared/workspaceMetadata'
 import { WORKSPACE_PORTAL_CHANNEL } from '@shared/workspacePortal'
 
 declare global {
@@ -299,6 +300,9 @@ export function installWebBridge(): void {
     },
     workspacePortal: {
       manage: (request: unknown) => invoke(WORKSPACE_PORTAL_CHANNEL, [request])
+    },
+    workspaceMetadata: {
+      onApply: (listener: Listener) => subscribe(WORKSPACE_METADATA_CHANNEL, listener)
     },
     apiKeys: {
       list: () => invoke(API_KEY_CHANNELS.list, []) as Promise<ApiKeyView[]>,
