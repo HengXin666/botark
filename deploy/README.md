@@ -55,7 +55,8 @@ The Compose service binds only `127.0.0.1:29178`; keep it that way and let SafeL
 
 The same gateway exposes a stable REST API under `/api/v1`. Admin users create
 and revoke permanent API keys in **设置与账号 → API 密钥与审计**; keys are not
-configured through `.env`. See [API.md](API.md) for endpoints and examples.
+configured through `.env`. See [API.md](API.md) for endpoints and examples;
+the machine-readable OpenAPI spec is [openapi.json](openapi.json).
 
 The API can read the workspace snapshot after the Web UI has opened once; Hark
 project/message operations call the main-process Hark client directly and can

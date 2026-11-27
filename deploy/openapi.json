@@ -1,0 +1,935 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "BotArk REST API",
+    "version": "1.0.0",
+    "description": "Stable HTTP API for BotArk external clients, including mobile apps. The API and Web UI share the same port. Create and revoke API keys in the admin Settings UI."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:29178/api/v1",
+      "description": "Local test deployment"
+    },
+    {
+      "url": "https://your-domain.example.com/api/v1",
+      "description": "Production behind SafeLine/HTTPS"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "health"
+    },
+    {
+      "name": "workspace"
+    },
+    {
+      "name": "accounts"
+    },
+    {
+      "name": "bots"
+    },
+    {
+      "name": "projects"
+    },
+    {
+      "name": "messages"
+    },
+    {
+      "name": "quota"
+    },
+    {
+      "name": "events"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "operationId": "getHealth",
+        "summary": "Public health check",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "API is reachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "operationId": "getWorkspace",
+        "summary": "Read the synced workspace snapshot",
+        "responses": {
+          "200": {
+            "description": "Workspace snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workspace"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "operationId": "streamEvents",
+        "summary": "Server-Sent Events stream",
+        "description": "Starts with a snapshot event, then message_delta, message, typing, status and approvals events. Keepalive comments are sent every 15 seconds. Revoking the key closes the stream immediately.",
+        "responses": {
+          "200": {
+            "description": "SSE stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/accounts": {
+      "get": {
+        "tags": [
+          "accounts"
+        ],
+        "operationId": "listAccounts",
+        "summary": "List accounts in the synced workspace",
+        "responses": {
+          "200": {
+            "description": "Account list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "accounts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Account"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/bots": {
+      "get": {
+        "tags": [
+          "bots"
+        ],
+        "operationId": "listBots",
+        "summary": "List bots",
+        "responses": {
+          "200": {
+            "description": "Bot list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "bots": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Bot"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/bots/{botId}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/BotId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "bots"
+        ],
+        "operationId": "getBot",
+        "summary": "Read one bot and its recent local messages",
+        "responses": {
+          "200": {
+            "description": "Bot detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/bots/{botId}/messages": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/BotId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "operationId": "listBotMessages",
+        "summary": "Read recent synced messages for a bot",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "messages"
+        ],
+        "operationId": "sendBotMessage",
+        "summary": "Send a Hark message via a bot’s active account/session",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/MessageInput"
+        },
+        "responses": {
+          "200": {
+            "description": "Message accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "501": {
+            "$ref": "#/components/responses/NotImplemented"
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/projects": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AccountId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "listProjects",
+        "summary": "List Hark projects and the main conversation",
+        "responses": {
+          "200": {
+            "description": "Project list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "accountId": {
+                      "type": "string"
+                    },
+                    "projects": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Project"
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "501": {
+            "$ref": "#/components/responses/NotImplemented"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "createProject",
+        "summary": "Create a Hark project",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "501": {
+            "$ref": "#/components/responses/NotImplemented"
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/projects/{projectId}/messages": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AccountId"
+        },
+        {
+          "$ref": "#/components/parameters/ProjectId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "messages"
+        ],
+        "operationId": "listProjectMessages",
+        "summary": "Read a live Hark project transcript",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageList"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "501": {
+            "$ref": "#/components/responses/NotImplemented"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "messages"
+        ],
+        "operationId": "sendProjectMessage",
+        "summary": "Send a Hark message to a project",
+        "requestBody": {
+          "$ref": "#/components/requestBodies/MessageInput"
+        },
+        "responses": {
+          "200": {
+            "description": "Message accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "501": {
+            "$ref": "#/components/responses/NotImplemented"
+          }
+        }
+      }
+    },
+    "/accounts/{accountId}/quota": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AccountId"
+        }
+      ],
+      "get": {
+        "tags": [
+          "quota"
+        ],
+        "operationId": "getAccountQuota",
+        "summary": "Read quota for one account",
+        "responses": {
+          "200": {
+            "description": "Quota response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "501": {
+            "$ref": "#/components/responses/NotImplemented"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/quota": {
+      "get": {
+        "tags": [
+          "quota"
+        ],
+        "operationId": "getAllQuota",
+        "summary": "Read quota for every account in the workspace",
+        "responses": {
+          "200": {
+            "description": "Per-account quota results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "bk_...",
+        "description": "Permanent API key created in Settings → API 密钥与审计."
+      }
+    },
+    "parameters": {
+      "AccountId": {
+        "name": "accountId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "BotId": {
+        "name": "botId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "ProjectId": {
+        "name": "projectId",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50
+        }
+      }
+    },
+    "requestBodies": {
+      "MessageInput": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/MessageInput"
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing or invalid API key",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "Invalid request body",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NotImplemented": {
+        "description": "Platform operation not implemented",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "ServiceUnavailable": {
+        "description": "Workspace not synced, API disabled, or quota requires Web UI",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "example": false
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "unauthorized"
+              },
+              "message": {
+                "type": "string",
+                "example": "API 密钥无效或已失效"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "ok",
+          "error"
+        ]
+      },
+      "Account": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "platformId": {
+            "type": "string",
+            "example": "hark"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "example": "online"
+          },
+          "botId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Bot": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "platformId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "activeAccountId": {
+            "type": "string"
+          },
+          "activeSessionId": {
+            "type": "string"
+          },
+          "activeSessionTitle": {
+            "type": "string"
+          },
+          "activeSessionKind": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Workspace": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer"
+          },
+          "updatedAtMs": {
+            "type": "integer"
+          },
+          "hostName": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "bots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Bot"
+            }
+          },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Account"
+            }
+          },
+          "messages": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "approvals": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "example": "project"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "favorite": {
+            "type": "boolean"
+          },
+          "archivedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "activityAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": true
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "example": "user"
+          },
+          "text": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": true
+      },
+      "MessageList": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "botId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "MessageInput": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Message text"
+          },
+          "projectId": {
+            "type": "string",
+            "description": "Hark project/conversation id; optional for bot endpoint"
+          },
+          "accountId": {
+            "type": "string",
+            "description": "Optional account override for bot endpoint"
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone, for example Asia/Singapore"
+          }
+        }
+      },
+      "ProjectInput": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Project title"
+          }
+        }
+      },
+      "SendResult": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "accepted": {
+            "type": "boolean"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "messageId": {
+            "type": "string",
+            "nullable": true
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "botId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      },
+      "QuotaResult": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "accountId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "quota": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  }
+}

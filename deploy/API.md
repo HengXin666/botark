@@ -3,6 +3,9 @@
 This is the stable HTTP API for external clients (including the mobile app).
 It runs on the same port as the Web UI, behind SafeLine / HTTPS.
 
+Machine-readable OpenAPI 3.0 spec: [openapi.json](openapi.json). Import it into
+Postman, Apifox, Insomnia or Swagger UI to generate a client.
+
 ## Authentication
 
 All endpoints except `GET /api/v1/health` require a bearer key:
