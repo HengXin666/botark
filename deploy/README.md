@@ -19,6 +19,7 @@ Required environment variables (one of):
 | `BOTARK_WEB_PASSWORD` | Plain password; easiest for Docker Compose. Minimum 8 characters, 12+ recommended. |
 | `BOTARK_WEB_PASSWORD_HASH` | Preferred production mode: a scrypt hash. Generate with the `web:hash-password` npm script. |
 | `BOTARK_WEB_PASSWORD_FILE` | Read the password from a file, e.g. a Docker secret. |
+| `BOTARK_WEB_PASSWORD_STORE` | Optional path for the hash written by the Web UI password-change form; defaults to `/data/web-password.hash` (persistent volume). |
 
 Generate a hash without putting the password in shell history:
 
@@ -38,7 +39,9 @@ Other auth variables:
 | `BOTARK_WEB_PUBLIC_ORIGIN` | empty | Optional public origin (e.g. `https://botark.example.com`) for Origin checks if the proxy rewrites Host. |
 | `BOTARK_API_CORS_ORIGIN` | empty | Optional exact origin allowed by the REST API for browser clients; native mobile apps do not need it. |
 
-Login protection includes scrypt password hashing, timing-safe verification, opaque server-side sessions, HttpOnly/SameSite=Strict cookies, origin checks on login/logout/WebSocket, and per-IP throttling (5 failures / 15 min by default). The web health endpoint is public; every other web route and the WebSocket require a session. REST `/api/v1` routes use the separate managed API keys described below.
+Login protection includes scrypt password hashing, timing-safe verification, opaque server-side sessions, HttpOnly/SameSite=Strict cookies, origin checks on login/logout/password-change/WebSocket, and per-IP throttling (5 failures / 15 min by default). The web health endpoint is public; every other web route and the WebSocket require a session. REST `/api/v1` routes use the separate managed API keys described below.
+
+The logged-in admin can change the site password at **Settings & Accounts → 常规、分组与安全 → Web 管理员密码**. The new scrypt hash is written to `/data/web-password.hash` (mode 0600) and overrides the environment value for future restarts; all other browser sessions are revoked.
 
 ## Docker Compose (recommended)
 

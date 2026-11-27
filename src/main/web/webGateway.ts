@@ -176,6 +176,8 @@ function mimeTypeFor(filePath: string): string {
       return 'image/svg+xml'
     case '.png':
       return 'image/png'
+    case '.ico':
+      return 'image/x-icon'
     case '.jpg':
     case '.jpeg':
       return 'image/jpeg'
@@ -316,6 +318,9 @@ function loginPageHtml(): string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <title>BotArk · 登录</title>
   <style>
     :root { color-scheme: dark; --bg:#0b1020; --card:#121a30; --line:#263451; --text:#f4f7ff; --muted:#9ba8c4; --accent:#6ea8fe; --danger:#ff8b8b; }
@@ -464,6 +469,62 @@ function handleLogout(req: IncomingMessage, res: ServerResponse): void {
   sendJson(res, 200, { ok: true })
 }
 
+async function handlePasswordChange(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!isSameOriginRequest(req, publicOrigin())) {
+    sendJson(res, 403, { ok: false, message: '请求来源无效' })
+    return
+  }
+  if (!isAuthorized(req)) {
+    authRequired(res)
+    return
+  }
+  const auth = webAuth
+  if (!auth) {
+    sendJson(res, 503, { ok: false, message: '登录服务尚未就绪' })
+    return
+  }
+  const ip = clientIp(req, auth.trustProxy)
+  const retryAfter = auth.retryAfterMs(ip)
+  if (retryAfter > 0) {
+    res.setHeader('Retry-After', String(Math.ceil(retryAfter / 1000)))
+    sendJson(res, 429, { ok: false, message: '尝试过于频繁，请稍后再试' })
+    return
+  }
+  let body: Record<string, unknown>
+  try {
+    body = await readJsonBody(req, 4096)
+  } catch {
+    sendJson(res, 400, { ok: false, message: '请求格式无效' })
+    return
+  }
+  const currentPassword = body['currentPassword']
+  const newPassword = body['newPassword']
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
+    sendJson(res, 400, { ok: false, message: '当前密码和新密码都不能为空' })
+    return
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  let changed = false
+  try {
+    changed = auth.changePassword(currentPassword, newPassword)
+  } catch (error) {
+    sendJson(res, 400, { ok: false, message: error instanceof Error ? error.message.replace(/^\[web\] /, '') : '新密码无效' })
+    return
+  }
+  if (!changed) {
+    auth.recordFailure(ip)
+    sendJson(res, 401, { ok: false, message: '当前密码错误' })
+    return
+  }
+  auth.clearFailures(ip)
+  const sessionId = auth.issueSession()
+  res.setHeader(
+    'Set-Cookie',
+    sessionCookie(sessionId, Math.floor(auth.sessionTtlMs / 1000), cookieSecure(req))
+  )
+  sendJson(res, 200, { ok: true })
+}
+
 async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url || '/', 'http://localhost')
 
@@ -479,6 +540,14 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
       port: listeningPort,
       auth: 'password'
     })
+    return
+  }
+
+  if (
+    req.method === 'GET' &&
+    (url.pathname === '/favicon.png' || url.pathname === '/favicon.ico' || url.pathname === '/apple-touch-icon.png')
+  ) {
+    await serveStatic(res, url.pathname, resolveWebRoot())
     return
   }
 
@@ -507,6 +576,11 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
     } else {
       authRequired(res)
     }
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/web/v1/password') {
+    await handlePasswordChange(req, res)
     return
   }
 
@@ -706,6 +780,8 @@ export async function startWebGateway(window: BrowserWindow): Promise<number> {
     password: password && password.length > 0 ? password : undefined,
     passwordFile: passwordFile || undefined,
     passwordHash: passwordHash || undefined,
+    passwordStoreFile:
+      process.env['BOTARK_WEB_PASSWORD_STORE']?.trim() || join(app.getPath('userData'), 'web-password.hash'),
     sessionTtlMs:
       (Number.isFinite(sessionHours) && sessionHours > 0 ? sessionHours : 12) * 60 * 60 * 1000,
     trustProxy: process.env['BOTARK_WEB_TRUST_PROXY'] === '1'

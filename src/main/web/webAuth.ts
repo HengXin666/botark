@@ -7,8 +7,9 @@
  * only, so a restart logs every browser out.
  */
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage } from 'node:http'
+import { dirname } from 'node:path'
 
 export const SESSION_COOKIE = 'botark_session'
 const SCRYPT_N = 16384
@@ -32,6 +33,8 @@ export interface WebAuthOptions {
   password?: string
   passwordFile?: string
   passwordHash?: string
+  /** Optional persistent hash written when the admin changes the password in the UI. */
+  passwordStoreFile?: string
   sessionTtlMs?: number
   trustProxy?: boolean
   maxFailures?: number
@@ -104,6 +107,16 @@ export function verifyPasswordDigest(password: string, digest: PasswordDigest): 
   }
 }
 
+function readStoredHash(file: string | undefined): string {
+  if (!file || !existsSync(file)) return ''
+  const value = readFileSync(file, 'utf8').trim()
+  if (!value) return ''
+  if (!parsePasswordHash(value)) {
+    throw new Error('[web] password store is not a valid scrypt hash: ' + file)
+  }
+  return value
+}
+
 function digestFromPassword(password: string): PasswordDigest {
   const salt = randomBytes(16)
   return {
@@ -116,9 +129,10 @@ function digestFromPassword(password: string): PasswordDigest {
 }
 
 export class WebAuth {
-  readonly digest: PasswordDigest
+  private digest: PasswordDigest
   readonly sessionTtlMs: number
   readonly trustProxy: boolean
+  private readonly passwordStoreFile?: string
   private readonly maxFailures: number
   private readonly failureWindowMs: number
   private readonly blockMs: number
@@ -126,7 +140,8 @@ export class WebAuth {
   private readonly attempts = new Map<string, AttemptRecord>()
 
   constructor(options: WebAuthOptions = {}) {
-    const hashText = options.passwordHash?.trim()
+    this.passwordStoreFile = options.passwordStoreFile?.trim() || undefined
+    const hashText = readStoredHash(this.passwordStoreFile) || options.passwordHash?.trim()
     const filePassword =
       !hashText && !options.password && options.passwordFile
         ? readFileSync(options.passwordFile, 'utf8').replace(/\r?\n$/, '')
@@ -160,6 +175,33 @@ export class WebAuth {
 
   verifyPassword(password: string): boolean {
     return verifyPasswordDigest(password, this.digest)
+  }
+
+  /**
+   * Change the admin password, persist the new hash when a store file is
+   * configured, and invalidate every existing browser session.  Returns false
+   * only when the supplied current password is wrong.
+   */
+  changePassword(currentPassword: string, newPassword: string): boolean {
+    if (!this.verifyPassword(currentPassword)) return false
+    if (newPassword.length < 8) {
+      throw new Error('[web] New password must be at least 8 characters')
+    }
+    if (newPassword.length > 1024) {
+      throw new Error('[web] New password is too long')
+    }
+    const encoded = hashPassword(newPassword)
+    const parsed = parsePasswordHash(encoded)
+    if (!parsed) throw new Error('[web] Failed to hash new password')
+    if (this.passwordStoreFile) {
+      mkdirSync(dirname(this.passwordStoreFile), { recursive: true })
+      const temporary = this.passwordStoreFile + '.tmp-' + process.pid + '-' + Date.now()
+      writeFileSync(temporary, encoded + '\n', { mode: 0o600 })
+      renameSync(temporary, this.passwordStoreFile)
+    }
+    this.digest = parsed
+    this.revokeAllSessions()
+    return true
   }
 
   issueSession(): string {

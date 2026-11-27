@@ -44,6 +44,7 @@ import { platformIcon } from '@/lib/platformIcons'
 import { HermesAccountsSettingsPanel } from '@/components/hermes/HermesAccountsSettingsPanel'
 import { MobileSyncSettingsPanel } from '@/components/mobile-sync/MobileSyncSettingsPanel'
 import { ApiKeysSection } from '@/components/settings/ApiKeysSection'
+import { WebPasswordSettings } from '@/components/settings/WebPasswordSettings'
 import { useBotStore } from '@/store/botStore'
 import { usePrefsStore, type Locale, type ThemePref } from '@/store/prefsStore'
 
@@ -2381,6 +2382,8 @@ export function SettingsView() {
                     调整界面外观、管理侧边栏分组，以及在发布/交付前一键脱敏或清除所有本机敏感凭据。
                   </p>
                 </div>
+
+                {runtimePlatform === 'web' && <WebPasswordSettings />}
 
                 {/* Appearance & Version */}
                 <div className="divide-y divide-line rounded-2xl border border-line bg-surface shadow-soft">

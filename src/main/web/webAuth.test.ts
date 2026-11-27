@@ -36,6 +36,33 @@ describe('web auth password hashing', () => {
   })
 })
 
+describe('WebAuth password changes', () => {
+  it('persists a new password and revokes existing sessions', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'botark-web-auth-'))
+    const file = join(dir, 'web-password.hash')
+    try {
+      const auth = new WebAuth({ password: PASSWORD, passwordStoreFile: file })
+      const session = auth.issueSession()
+      expect(auth.changePassword('wrong password', 'new password 456')).toBe(false)
+      expect(auth.validateSession(session)).toBe(true)
+      expect(auth.changePassword(PASSWORD, 'new password 456')).toBe(true)
+      expect(auth.validateSession(session)).toBe(false)
+      expect(auth.verifyPassword('new password 456')).toBe(true)
+
+      const reopened = new WebAuth({ password: PASSWORD, passwordStoreFile: file })
+      expect(reopened.verifyPassword('new password 456')).toBe(true)
+      expect(reopened.verifyPassword(PASSWORD)).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a too-short new password', () => {
+    const auth = new WebAuth({ password: PASSWORD })
+    expect(() => auth.changePassword(PASSWORD, 'short')).toThrow(/at least 8/)
+  })
+})
+
 describe('WebAuth sessions and throttle', () => {
   it('requires a password with a minimum length', () => {
     expect(() => new WebAuth({})).toThrow(/required/)
