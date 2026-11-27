@@ -28,6 +28,7 @@ import {
 import { RestApi } from './restApi'
 import { getMobileWorkspaceSnapshot, subscribeMobileSyncEvents } from '../mobileSync/mobileSyncIpc'
 import { getApiKeyStore } from '../apiKeys/apiKeyIpc'
+import { WORKSPACE_METADATA_EVENT } from '@shared/workspaceMetadata'
 
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown
 
@@ -151,6 +152,18 @@ function sendJson(res: ServerResponse, status: number, value: unknown): void {
     'Cache-Control': 'no-store'
   })
   res.end(body)
+}
+
+async function applyWorkspaceMetadataToRenderer(payload: unknown): Promise<{ ok: true }> {
+  const win = hostWindow
+  if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
+    throw new Error('workspace window is not ready')
+  }
+  const detail = JSON.stringify(payload)
+  await win.webContents.executeJavaScript(
+    'window.dispatchEvent(new CustomEvent(' + JSON.stringify(WORKSPACE_METADATA_EVENT) + ', { detail: ' + detail + ' })); true'
+  )
+  return { ok: true }
 }
 
 function sendText(res: ServerResponse, status: number, body: string, contentType: string): void {
@@ -796,6 +809,7 @@ export async function startWebGateway(window: BrowserWindow): Promise<number> {
     isKeyActive: (keyId) => keyId === 'env-bootstrap' || apiKeys.isActive(keyId),
     onRequest: (entry) => apiKeys.recordRequest(entry),
     onUsage: (keyId, usage) => apiKeys.recordUsage(keyId, usage),
+    applyWorkspaceMetadata: applyWorkspaceMetadataToRenderer,
     subscribeEvents: subscribeMobileSyncEvents
   })
   apiKeyRevokeUnsub = apiKeys.onRevoke((keyId) => restApi?.closeKeyStreams(keyId))

@@ -43,6 +43,8 @@ export interface RestApiOptions {
   ) => void
   /** Return false after a key is revoked; open SSE streams are closed. */
   isKeyActive?: (keyId: string) => boolean
+  /** Apply a metadata-only workspace patch in the live renderer. */
+  applyWorkspaceMetadata?: (payload: unknown) => Promise<{ ok: true }>
   /** Subscribe to live workspace events; return an unsubscribe function. */
   subscribeEvents?: (listener: (event: unknown) => void) => () => void
 }
@@ -247,6 +249,7 @@ export class RestApi {
   private readonly onRequest?: RestApiOptions['onRequest']
   private readonly onUsage?: RestApiOptions['onUsage']
   private readonly isKeyActive?: (keyId: string) => boolean
+  private readonly applyWorkspaceMetadata?: RestApiOptions['applyWorkspaceMetadata']
   private readonly corsOrigin?: string
   private readonly sseClients = new Map<ServerResponse, string>()
   private readonly unsubscribeEvents?: () => void
@@ -284,6 +287,7 @@ export class RestApi {
     this.onRequest = options.onRequest
     this.onUsage = options.onUsage
     this.isKeyActive = options.isKeyActive
+    this.applyWorkspaceMetadata = options.applyWorkspaceMetadata
     this.corsOrigin = process.env['BOTARK_API_CORS_ORIGIN']?.trim() || undefined
     // Managed keys are authoritative; legacy env token is only used by
     // standalone RestApi callers that do not provide a key store.
@@ -606,6 +610,19 @@ export class RestApi {
 
       if (parts[2] === 'workspace' && parts.length === 3 && method === 'GET') {
         sendJson(res, 200, { ok: true, workspace: this.snapshot() })
+        return true
+      }
+
+      if (parts[2] === 'workspace' && parts[3] === 'metadata' && parts.length === 4 && method === 'POST') {
+        if (!this.applyWorkspaceMetadata) {
+          throw new ApiError(501, 'workspace_metadata_unavailable', '当前运行模式不支持工作区元数据同步')
+        }
+        const body = await readJsonBody(req)
+        if (!Array.isArray(body['groups']) || !Array.isArray(body['bots'])) {
+          throw new ApiError(400, 'invalid_workspace_metadata', 'groups 和 bots 必须是数组')
+        }
+        const result = await this.applyWorkspaceMetadata(body)
+        sendJson(res, 200, { ...result, ok: true })
         return true
       }
 

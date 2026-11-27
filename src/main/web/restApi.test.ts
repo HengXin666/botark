@@ -38,6 +38,7 @@ const snapshot = {
 } as unknown as MobileWorkspaceSnapshot
 
 const calls: Array<{ channel: string; args: unknown[] }> = []
+const appliedMetadata: unknown[] = []
 const api = new RestApi({
   version: '1.0.0-test',
   getSnapshot: () => snapshot,
@@ -74,7 +75,11 @@ const api = new RestApi({
     }
     return { ok: false, status: 404, message: 'not mocked' }
   },
-  apiToken: TOKEN
+  apiToken: TOKEN,
+  applyWorkspaceMetadata: async (payload) => {
+    appliedMetadata.push(payload)
+    return { ok: true }
+  }
 })
 
 let server: Server
@@ -144,6 +149,21 @@ describe('rest api v1', () => {
     const listed = await json('/api/v1/accounts/imports', auth())
     expect(listed.status).toBe(200)
     expect(listed.body.accounts[0]).toMatchObject({ accountId: 'acc_hark_new' })
+  })
+
+  it('applies a workspace metadata patch through the admin REST API', async () => {
+    const payload = {
+      groups: [{ id: 'grp_pro1', name: 'Pro1' }],
+      bots: [{ matchHandle: 'one@example.com', name: 'Hark Pro1', groupId: 'grp_pro1' }]
+    }
+    const result = await json('/api/v1/workspace/metadata', auth({ method: 'POST', body: JSON.stringify(payload) }))
+    expect(result.status).toBe(200)
+    expect(result.body).toMatchObject({ ok: true })
+    expect(appliedMetadata.at(-1)).toEqual(payload)
+
+    const invalid = await json('/api/v1/workspace/metadata', auth({ method: 'POST', body: JSON.stringify({ groups: [] }) }))
+    expect(invalid.status).toBe(400)
+    expect(invalid.body.error.code).toBe('invalid_workspace_metadata')
   })
 
   it('lists Hark projects and project messages', async () => {

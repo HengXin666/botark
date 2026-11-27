@@ -19,7 +19,7 @@ export interface NodeMaintLiveNode extends NodeMaintRawNode {
   egressIp?: string
 }
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:28530'
+const DEFAULT_BASE_URL = process.env['NODE_MAINT_BASE_URL']?.trim() || 'http://127.0.0.1:28530'
 const NODES_PATH = '/api/nodes'
 const LIST_TIMEOUT_MS = 5000
 const FETCH_ATTEMPTS = 3

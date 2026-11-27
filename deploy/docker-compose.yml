@@ -32,6 +32,10 @@ services:
       # API keys are created and revoked from the admin Settings UI.
       # Optional exact origin for browser-based external API clients.
       BOTARK_API_CORS_ORIGIN: "${BOTARK_API_CORS_ORIGIN:-}"
+      # node-maint intelligence service (host network on the same VPS).
+      NODE_MAINT_BASE_URL: "${NODE_MAINT_BASE_URL:-http://host.docker.internal:28530}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       # Default stays on loopback for a SafeLine/reverse-proxy deployment.
       # Set BOTARK_WEB_BIND_ADDRESS=0.0.0.0 only when this host has no proxy.

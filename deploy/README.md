@@ -38,6 +38,7 @@ Other auth variables:
 | `BOTARK_WEB_COOKIE_SECURE` | `0` | Set to `1` when users access the site over HTTPS. |
 | `BOTARK_WEB_PUBLIC_ORIGIN` | empty | Optional public origin (e.g. `https://botark.example.com`) for Origin checks if the proxy rewrites Host. |
 | `BOTARK_API_CORS_ORIGIN` | empty | Optional exact origin allowed by the REST API for browser clients; native mobile apps do not need it. |
+| `NODE_MAINT_BASE_URL` | `http://host.docker.internal:28530` | Optional node-maint endpoint. The Compose file maps `host.docker.internal` to the VPS bridge gateway; expose node-maint's loopback API on that gateway (for example with a scoped `socat` service) if BotArk should pull proxy nodes from it. |
 
 Login protection includes scrypt password hashing, timing-safe verification, opaque server-side sessions, HttpOnly/SameSite=Strict cookies, origin checks on login/logout/password-change/WebSocket, and per-IP throttling (5 failures / 15 min by default). The web health endpoint is public; every other web route and the WebSocket require a session. REST `/api/v1` routes use the separate managed API keys described below.
 

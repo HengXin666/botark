@@ -21,7 +21,7 @@ export interface ProtocolLiveNode {
   egressIp?: string
 }
 
-const BASE_URL = 'http://127.0.0.1:28530'
+const BASE_URL = process.env['NODE_MAINT_BASE_URL']?.trim() || 'http://127.0.0.1:28530'
 const PROTOCOLS = ['vless'] as const
 const PAGE = 500
 

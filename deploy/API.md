@@ -50,6 +50,22 @@ accounts, recent messages and approvals. The snapshot is persisted under
 `/data`, so it survives a Web UI being closed or a server restart after the
 first sync.
 
+### `POST /api/v1/workspace/metadata`
+
+Admin-only metadata patch used to align a remote BotArk with the local desktop
+workspace without copying credentials or messages. It updates sidebar groups,
+bot display names and each bot's group assignment; bots are matched by the
+active account handle, so the same Hark account can have a different local bot
+id on each instance.
+
+```json
+{
+  "groups": [{"id":"grp_pro1","name":"Pro1","collapsed":false}],
+  "bots": [{"matchHandle":"me@example.com","name":"HX-CF-D","groupId":"grp_pro1"}],
+  "removeEmptyGroups": true
+}
+```
+
 ### `GET /api/v1/events`
 
 Server-Sent Events stream for live updates. Authenticate with the same bearer

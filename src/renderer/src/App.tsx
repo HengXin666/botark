@@ -22,6 +22,7 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getBridge } from '@/lib/bridge'
 import { syncHarkPool } from '@/lib/harkPoolSync'
 import { syncRemoteHarkAccounts } from '@/lib/remoteHarkSync'
+import { startWorkspaceMetadataBridge } from '@/services/workspaceMetadataBridge'
 
 export default function App() {
   const settingsOpen = useBotStore((s) => s.settingsOpen)
@@ -31,6 +32,9 @@ export default function App() {
   const selectedBotId = useBotStore((s) => s.selectedBotId)
   const activeRoom = useRooms((s) => s.rooms.find((r) => r.id === selectedRoomId))
   useQuotaUsageCollector()
+
+  useEffect(() => startWorkspaceMetadataBridge(), [])
+
   // Details only make sense next to a selected bot, or next to an existing room.
   const infoOpen = useBotStore((s) => {
     if (s.settingsOpen || s.quotaStatsOpen || !s.infoPanelOpen) return false
