@@ -32,7 +32,7 @@ import { getApiKeyStore } from '../apiKeys/apiKeyIpc'
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown
 
 export const WEB_GATEWAY_WS_PATH = '/api/web/v1/ws'
-const DEFAULT_PORT = 8787
+const DEFAULT_PORT = 29178
 const MAX_BODY_BYTES = 64 * 1024 * 1024
 
 let captured = false

@@ -53,9 +53,9 @@ function gatewayWsUrl(): string {
     return protocol + '//' + window.location.host + '/api/web/v1/ws'
   }
 
-  // Dev escape hatch: vite dev server on :5174 + gateway on :8787.
+  // Dev escape hatch: vite dev server on :5174 + gateway on :29178.
   const explicit = params.get('gateway')
-  const base = explicit ? new URL(explicit) : new URL('http://127.0.0.1:8787')
+  const base = explicit ? new URL(explicit) : new URL('http://127.0.0.1:29178')
   const protocol = base.protocol === 'https:' ? 'wss:' : 'ws:'
   return protocol + '//' + base.host + '/api/web/v1/ws'
 }

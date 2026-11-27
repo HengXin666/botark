@@ -3,5 +3,5 @@
 # BotArk already enforces its own password login; no extra Basic Auth is added here.
 botark.example.com {
     encode zstd gzip
-    reverse_proxy botark:8787
+    reverse_proxy botark:29178
 }

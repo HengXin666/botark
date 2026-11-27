@@ -46,10 +46,10 @@ Login protection includes scrypt password hashing, timing-safe verification, opa
 cp deploy/.env.example deploy/.env
 # edit deploy/.env: at minimum BOTARK_WEB_PASSWORD and BOTARK_WEB_COOKIE_SECURE
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
-# open http://127.0.0.1:8787 locally, or https://your-domain via SafeLine
+# open http://127.0.0.1:29178 locally, or https://your-domain via SafeLine
 ```
 
-The Compose service binds only `127.0.0.1:8787`; keep it that way and let SafeLine terminate TLS and forward to it.
+The Compose service binds only `127.0.0.1:29178`; keep it that way and let SafeLine terminate TLS and forward to it.
 
 ## REST API for mobile / external clients
 
@@ -68,8 +68,8 @@ Grok/Hermes return `quota_not_supported`.
 
 Create a site in SafeLine:
 
-- Upstream: `http://127.0.0.1:8787`
-  - If SafeLine itself runs in Docker, attach it to the same Docker network as `botark` and use `http://botark:8787` instead of loopback.
+- Upstream: `http://127.0.0.1:29178`
+  - If SafeLine itself runs in Docker, attach it to the same Docker network as `botark` and use `http://botark:29178` instead of loopback.
 - TLS: enable HTTPS for your domain
 - Keep the original Host header
 - Forward X-Forwarded-For, X-Forwarded-Proto and X-Real-IP
@@ -93,7 +93,7 @@ npm run build:webapp
 BOTARK_WEB_PASSWORD="change-this-long-password" \
   BOTARK_WEB_COOKIE_SECURE=0 \
   xvfb-run -a npm run start:web
-# open http://127.0.0.1:8787
+# open http://127.0.0.1:29178
 ```
 
 For HTTPS locally, set BOTARK_WEB_COOKIE_SECURE=1 only after putting TLS in front of the gateway; otherwise the browser will not send the session cookie.
@@ -103,7 +103,7 @@ For HTTPS locally, set BOTARK_WEB_COOKIE_SECURE=1 only after putting TLS in fron
 ```bash
 docker build -f deploy/Dockerfile -t botark-web .
 docker run -d --name botark-web \
-  -p 127.0.0.1:8787:8787 \
+  -p 127.0.0.1:29178:29178 \
   -e BOTARK_WEB_PASSWORD="change-this-long-password" \
   -e BOTARK_WEB_TRUST_PROXY=1 \
   -e BOTARK_WEB_COOKIE_SECURE=0 \
@@ -121,7 +121,7 @@ For production, prefer BOTARK_WEB_PASSWORD_HASH or a file-based secret over pass
 
 ## Security checklist
 
-1. Never expose port 8787 directly to the public internet; publish only through SafeLine/Tailscale.
+1. Never expose port 29178 directly to the public internet; publish only through SafeLine/Tailscale.
 2. Use BOTARK_WEB_COOKIE_SECURE=1 with HTTPS.
 3. Keep `/data` on an encrypted volume and back it up; it contains platform session cookies and account stores.
 4. Treat the web UI as a full remote control: the gateway exposes the same high-privilege IPC surface as the desktop app (including workspace tools).

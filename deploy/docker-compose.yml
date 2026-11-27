@@ -15,7 +15,7 @@ services:
     environment:
       BOTARK_WEB: "1"
       BOTARK_WEB_HOST: "0.0.0.0"
-      BOTARK_WEB_PORT: "8787"
+      BOTARK_WEB_PORT: "29178"
       BOTARK_DATA_DIR: "/data"
       # Password is required. Set one of the following in deploy/.env:
       # BOTARK_WEB_PASSWORD (plain, convenient) or BOTARK_WEB_PASSWORD_HASH (recommended).
@@ -34,7 +34,7 @@ services:
       BOTARK_API_CORS_ORIGIN: "${BOTARK_API_CORS_ORIGIN:-}"
     ports:
       # Keep the app port on loopback; publish it through SafeLine instead.
-      - "127.0.0.1:${BOTARK_WEB_PUBLISH_PORT:-8787}:8787"
+      - "127.0.0.1:${BOTARK_WEB_PUBLISH_PORT:-29178}:29178"
     volumes:
       - botark-data:/data
 
