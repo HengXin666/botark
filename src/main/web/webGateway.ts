@@ -13,7 +13,7 @@
  */
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { extname, join, resolve, sep } from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import {
@@ -154,10 +154,14 @@ function sendJson(res: ServerResponse, status: number, value: unknown): void {
   res.end(body)
 }
 
+function workspaceMetadataPath(): string {
+  return join(app.getPath('userData'), 'workspace-metadata.json')
+}
+
 function applyWorkspaceMetadataToRenderer(payload: unknown): Promise<{ ok: true }> {
-  if (sockets.size === 0) {
-    throw new Error('没有已连接的 Web 管理界面，请先打开 BotArk Web 页面')
-  }
+  // Persist so a browser that opens later (or was offline during the push)
+  // still starts with the local workspace's group names and bot names.
+  writeFileSync(workspaceMetadataPath(), JSON.stringify(payload, null, 2), { mode: 0o600 })
   broadcastEvent(WORKSPACE_METADATA_CHANNEL, [payload])
   return Promise.resolve({ ok: true })
 }
@@ -590,6 +594,22 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
 
   if (req.method === 'POST' && url.pathname === '/api/web/v1/password') {
     await handlePasswordChange(req, res)
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/web/v1/workspace-metadata') {
+    if (!isAuthorized(req)) {
+      authRequired(res)
+      return
+    }
+    let metadata: unknown = null
+    try {
+      const raw = readFileSync(workspaceMetadataPath(), 'utf8')
+      metadata = JSON.parse(raw) as unknown
+    } catch {
+      /* no saved metadata patch */
+    }
+    sendJson(res, 200, { ok: true, metadata })
     return
   }
 

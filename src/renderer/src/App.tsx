@@ -22,7 +22,7 @@ import { ErrorBoundary } from '@/components/ui/ErrorBoundary'
 import { getBridge } from '@/lib/bridge'
 import { syncHarkPool } from '@/lib/harkPoolSync'
 import { syncRemoteHarkAccounts } from '@/lib/remoteHarkSync'
-import { startWorkspaceMetadataBridge } from '@/services/workspaceMetadataBridge'
+import { applySavedWorkspaceMetadata, startWorkspaceMetadataBridge } from '@/services/workspaceMetadataBridge'
 
 export default function App() {
   const settingsOpen = useBotStore((s) => s.settingsOpen)
@@ -47,9 +47,10 @@ export default function App() {
     const hark = getBridge()?.hark
     if (!hark?.remoteList) return
     const refresh = (): void => {
-      void syncRemoteHarkAccounts().catch((error) =>
-        console.warn('[hark-remote] sync failed', error)
-      )
+      void syncRemoteHarkAccounts()
+        .catch((error) => console.warn('[hark-remote] sync failed', error))
+        .then(() => applySavedWorkspaceMetadata())
+        .catch((error) => console.warn('[workspace-metadata] load failed', error))
     }
     refresh()
     // The REST import handler broadcasts this event after each registration

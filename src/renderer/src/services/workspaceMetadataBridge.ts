@@ -101,23 +101,44 @@ export function applyWorkspaceMetadata(payload: WorkspaceMetadataPayload): Works
   }
 }
 
+function applySafely(detail: WorkspaceMetadataPayload): void {
+  if (!detail || typeof detail !== 'object') return
+  try {
+    applyWorkspaceMetadata(detail)
+  } catch (error) {
+    console.warn('[workspace-metadata] apply failed', error)
+  }
+}
+
+/** Fetch the last metadata patch saved by the server and merge it. */
+export async function applySavedWorkspaceMetadata(): Promise<void> {
+  try {
+    const response = await fetch('/api/web/v1/workspace-metadata', {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    })
+    if (!response.ok) return
+    const data = (await response.json()) as { metadata?: WorkspaceMetadataPayload | null }
+    if (data.metadata) applySafely(data.metadata)
+  } catch {
+    /* offline / not a web runtime */
+  }
+}
+
 /** Install the renderer-side listener once for the Web runtime. */
 export function startWorkspaceMetadataBridge(): () => void {
-  const apply = (detail: WorkspaceMetadataPayload): void => {
-    if (!detail || typeof detail !== 'object') return
-    try {
-      applyWorkspaceMetadata(detail)
-    } catch (error) {
-      console.warn('[workspace-metadata] apply failed', error)
-    }
-  }
-
   const subscribe = getBridge()?.workspaceMetadata?.onApply
-  if (subscribe) return subscribe(apply)
+  if (subscribe) {
+    const unsubscribe = subscribe(applySafely)
+    // A push made while this browser was closed is kept on the server; apply
+    // it as soon as the authenticated page mounts.
+    void applySavedWorkspaceMetadata()
+    return unsubscribe
+  }
 
   // Plain browser without the gateway bridge (Vite dev mode): allow a local
   // custom event for testing the merge logic without a server round-trip.
-  const listener = (event: Event): void => apply((event as CustomEvent<WorkspaceMetadataPayload>).detail)
+  const listener = (event: Event): void => applySafely((event as CustomEvent<WorkspaceMetadataPayload>).detail)
   window.addEventListener('botark:workspace-metadata', listener)
   return () => window.removeEventListener('botark:workspace-metadata', listener)
 }
