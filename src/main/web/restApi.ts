@@ -628,12 +628,33 @@ export class RestApi {
         for (const bot of snapshot.bots) {
           if (bot.activeAccountId) activeBotIds.set(bot.activeAccountId, bot.id)
         }
-        sendJson(res, 200, {
-          ok: true,
-          accounts: Object.values(snapshot.accounts).map((account) =>
-            accountSummary(account as unknown as Record<string, unknown>, activeBotIds)
-          )
-        })
+        const accounts = Object.values(snapshot.accounts).map((account) =>
+          accountSummary(account as unknown as Record<string, unknown>, activeBotIds)
+        )
+        // A registration machine may have imported accounts before any Web UI
+        // has pushed a workspace snapshot. Surface that registry immediately so
+        // REST clients do not have to wait for a browser tab to open.
+        try {
+          const imported = (await this.invokeIpc(HARK_CHANNELS.remoteList, [])) as Array<Record<string, unknown>>
+          if (Array.isArray(imported)) {
+            const known = new Set(accounts.map((account) => String(account['id'])))
+            for (const row of imported) {
+              const id = stringValue(row['accountId'])
+              const email = stringValue(row['email'])
+              if (!id || known.has(id)) continue
+              accounts.push({
+                id,
+                platformId: 'hark',
+                displayName: stringValue(row['displayName']) || email || id,
+                handle: email,
+                status: 'offline'
+              })
+            }
+          }
+        } catch {
+          /* remote registry is optional; the snapshot remains authoritative */
+        }
+        sendJson(res, 200, { ok: true, accounts })
         return true
       }
 
