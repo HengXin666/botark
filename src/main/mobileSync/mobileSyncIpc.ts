@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, session as electronSession } from 'electron'
 import {
   MOBILE_SYNC_CHANNELS,
@@ -171,10 +172,15 @@ async function collectMobileProxyNodes(): Promise<MobileProxyNode[]> {
   return out
 }
 
+function isWebRuntime(): boolean {
+  return process.env['BOTARK_WEB'] === '1' || process.argv.includes('--web')
+}
+
 function ensureServer(): MobileSyncServer {
   if (!syncServer) {
     syncServer = new MobileSyncServer({
       storePath: defaultMobileSyncDevicesPath(app.getPath('userData')),
+      snapshotPath: isWebRuntime() ? join(app.getPath('userData'), 'mobile-workspace-snapshot.json') : undefined,
       appVersion: app.getVersion(),
       getDirectCredentials: collectDirectHermesCredentials,
       getHarkCredentials: collectHarkCredentials,
@@ -190,6 +196,18 @@ export async function stopMobileSyncServer(): Promise<void> {
   if (syncServer) {
     await syncServer.stop().catch(() => undefined)
   }
+}
+
+/** Latest workspace snapshot mirrored from the web UI; used by the REST API. */
+export function getMobileWorkspaceSnapshot(): MobileWorkspaceSnapshot | null {
+  return ensureServer().getSnapshot()
+}
+
+/** Subscribe to live workspace events for the REST SSE endpoint. */
+export function subscribeMobileSyncEvents(
+  listener: (event: MobileBridgeLiveEvent) => void
+): () => void {
+  return ensureServer().onLiveEvent(listener)
 }
 
 export function registerMobileSyncIpc(): void {
@@ -240,8 +258,8 @@ export function registerMobileSyncIpc(): void {
   })
 
   ipcMain.on(MOBILE_SYNC_CHANNELS.pushSnapshot, (_event, snapshot: unknown) => {
-    if (!syncServer || !snapshot || typeof snapshot !== 'object') return
-    syncServer.updateSnapshot(snapshot as MobileWorkspaceSnapshot)
+    if (!snapshot || typeof snapshot !== 'object') return
+    ensureServer().updateSnapshot(snapshot as MobileWorkspaceSnapshot)
   })
 
   ipcMain.on(MOBILE_SYNC_CHANNELS.pushEvent, (_event, payload: unknown) => {

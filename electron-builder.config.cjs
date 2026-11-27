@@ -40,7 +40,8 @@ module.exports = {
   files: ['out/**/*', 'package.json'],
   asar: true,
   extraResources: [
-    { from: 'build/mihomo', to: 'mihomo' }
+    { from: 'build/mihomo', to: 'mihomo' },
+    { from: 'dist/web', to: 'web' }
   ],
   mac: {
     category: 'public.app-category.productivity',

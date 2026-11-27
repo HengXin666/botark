@@ -1,0 +1,7 @@
+# Optional alternative reverse proxy (the recommended setup is SafeLine/雷池).
+# Replace botark.example.com with your domain and point it at the BotArk service.
+# BotArk already enforces its own password login; no extra Basic Auth is added here.
+botark.example.com {
+    encode zstd gzip
+    reverse_proxy botark:8787
+}

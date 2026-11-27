@@ -222,12 +222,19 @@ npm run dev
 | `npm run typecheck` | Type-check Node and renderer TypeScript targets |
 | `npm test` | Run the Vitest unit test suite |
 | `npm run build` | Build production bundles into `out/` |
+| `npm run build:web` | Build the browser-only renderer into `dist/web` |
+| `npm run start:web` | Run the headless web gateway after `build` + `build:web` (Linux/Xvfb) |
+| `npm run web:hash-password` | Generate a scrypt hash for `BOTARK_WEB_PASSWORD_HASH` |
 | `npm run dist:mac` / `npm run dist:win` | Package macOS `.dmg` + `.zip` or Windows `.exe` installers |
 | `npm run dist:linux` | Package a single-file Linux `.AppImage` into `release/` |
 
 ### Linux notes
 
 The AppImage carries its own Electron runtime, so it runs on most x86_64 distributions with glibc 2.31+. It keeps Chromium's sandbox enabled through unprivileged user namespaces; on kernels with `kernel.unprivileged_userns_clone=0` launch with `--no-sandbox`. Wayland and X11 are auto-detected (`ELECTRON_OZONE_PLATFORM_HINT=x11` forces X11). Hardware video decoding is opt-in with `BOTARK_LINUX_VAAPI=1` because some proprietary drivers still crash on it.
+
+### Web / VPS (Hark-first)
+
+The same React renderer can be served as a browser app while the Electron main process runs headless on a Linux VPS (Xvfb). This mode exposes the existing IPC surface over a WebSocket gateway, skips the phone QR sync and auto-updater, and is optimized for Hark. See [**deploy/README.md**](deploy/README.md) for the Docker Compose / SafeLine setup, password login, and Hark credential import flow; the stable mobile/external REST API is documented in [**deploy/API.md**](deploy/API.md).
 
 Interested in contributing or adding another agent platform? See [**CONTRIBUTING.md**](CONTRIBUTING.md) and the protocol notes in [**`docs/`**](docs/README.md).
 

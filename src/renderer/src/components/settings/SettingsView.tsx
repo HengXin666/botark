@@ -36,12 +36,14 @@ import { BotAvatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
 import { StatusBadge } from '@/components/ui/Status'
-import { getBridge } from '@/lib/bridge'
+import { getBridge, runtimePlatform } from '@/lib/bridge'
+import { logoutWebSession } from '@/lib/webBridge'
 import { cn } from '@/lib/cn'
 import { useT, t } from '@/lib/i18n'
 import { platformIcon } from '@/lib/platformIcons'
 import { HermesAccountsSettingsPanel } from '@/components/hermes/HermesAccountsSettingsPanel'
 import { MobileSyncSettingsPanel } from '@/components/mobile-sync/MobileSyncSettingsPanel'
+import { ApiKeysSection } from '@/components/settings/ApiKeysSection'
 import { useBotStore } from '@/store/botStore'
 import { usePrefsStore, type Locale, type ThemePref } from '@/store/prefsStore'
 
@@ -54,6 +56,7 @@ type SettingsTab =
   | 'hermes-accounts'
   | 'antigravity-accounts'
   | 'mobile-sync'
+  | 'api-keys'
   | 'proxy-pool'
   | 'general'
 
@@ -845,7 +848,8 @@ export function SettingsView() {
       platformId: 'antigravity',
       count: antigravityAccounts.length
     },
-    { id: 'mobile-sync', label: '手机扫码同步', icon: Smartphone },
+    ...(runtimePlatform === 'web' ? [] : [{ id: 'mobile-sync' as const, label: '手机扫码同步', icon: Smartphone }]),
+    ...(runtimePlatform === 'web' ? [{ id: 'api-keys' as const, label: 'API 密钥与审计', icon: KeyRound }] : []),
     { id: 'proxy-pool', label: '代理池与自动分配', icon: Server, count: pool.length },
     { id: 'general', label: '常规、分组与安全', icon: Settings }
   ]
@@ -876,6 +880,11 @@ export function SettingsView() {
           >
             <Activity className={cn('size-3.5', busy && 'animate-spin')} /> 全量健康巡检
           </Button>
+          {runtimePlatform === 'web' && (
+            <Button size="sm" variant="ghost" onClick={() => void logoutWebSession()}>
+              <LogOut className="size-3.5" /> 退出登录
+            </Button>
+          )}
         </div>
       </PaneHeader>
 
@@ -1899,14 +1908,18 @@ export function SettingsView() {
                   <div>
                     <h2 className="text-[17px] font-semibold tracking-tight text-ink">Hark 账号</h2>
                     <p className="mt-1 text-[13px] text-ink-secondary">
-                      支持内置窗口登录或直接粘贴会话凭据接入。
+                      {runtimePlatform === 'web'
+                        ? 'Web 版请粘贴 Hark Session Cookie / Token 接入（服务端会保持登录会话）。'
+                        : '支持内置窗口登录或直接粘贴会话凭据接入。'}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-start gap-2">
                     <HarkPoolImport />
-                    <Button variant="primary" size="sm" onClick={() => void handleQuickAddHarkAccount()}>
-                      <Plus className="size-3.5" /> 网页登录新增 Hark 账号
-                    </Button>
+                    {runtimePlatform !== 'web' && (
+                      <Button variant="primary" size="sm" onClick={() => void handleQuickAddHarkAccount()}>
+                        <Plus className="size-3.5" /> 网页登录新增 Hark 账号
+                      </Button>
+                    )}
                   </div>
                 </div>
 
@@ -1960,7 +1973,9 @@ export function SettingsView() {
                   <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-line py-10 text-center">
                     <p className="text-[14px] font-medium text-ink">暂无 Hark 账号</p>
                     <p className="max-w-md text-[12.5px] text-ink-muted">
-                      点击上方「网页登录新增 Hark 账号」或在卡片中粘贴 Cookie / Session Token 即可接入。
+                      {runtimePlatform === 'web'
+                        ? '在上方卡片粘贴 Hark Cookie / Session Token 即可接入。'
+                        : '点击上方「网页登录新增 Hark 账号」或在卡片中粘贴 Cookie / Session Token 即可接入。'}
                     </p>
                   </div>
                 ) : (
@@ -1997,14 +2012,16 @@ export function SettingsView() {
                                   进入对话
                                 </Button>
                               )}
-                              <Button
-                                size="sm"
-                                variant="primary"
-                                disabled={acc.pending}
-                                onClick={() => void openHarkLogin(acc.id)}
-                              >
-                                登录窗口
-                              </Button>
+                              {runtimePlatform !== 'web' && (
+                                <Button
+                                  size="sm"
+                                  variant="primary"
+                                  disabled={acc.pending}
+                                  onClick={() => void openHarkLogin(acc.id)}
+                                >
+                                  登录窗口
+                                </Button>
+                              )}
                               <Button
                                 size="sm"
                                 variant="ghost"
@@ -2133,7 +2150,7 @@ export function SettingsView() {
               </div>
             )}
 
-            {settingsTab === 'mobile-sync' && <MobileSyncSettingsPanel />}
+            {settingsTab === 'mobile-sync' && runtimePlatform !== 'web' && <MobileSyncSettingsPanel />}
 
             {settingsTab === 'proxy-pool' && (
               <div className="flex flex-col gap-5 animate-veil-in">
@@ -2353,6 +2370,8 @@ export function SettingsView() {
                 </div>
               </div>
             )}
+
+            {settingsTab === 'api-keys' && <ApiKeysSection />}
 
             {settingsTab === 'general' && (
               <div className="flex flex-col gap-5 animate-veil-in">

@@ -7,7 +7,7 @@ import { getPlatformInspector } from '@/components/info/platformInspector'
 import { BotAvatar } from '@/components/ui/Avatar'
 import { IconButton } from '@/components/ui/IconButton'
 import { STATUS_LABEL } from '@/components/ui/Status'
-import { getBridge } from '@/lib/bridge'
+import { getBridge, runtimePlatform } from '@/lib/bridge'
 import { cn } from '@/lib/cn'
 import { getBotStatus } from '@/lib/selectors'
 import { harkHasHistory } from '@shared/harkProjects'
@@ -237,7 +237,7 @@ export function ChatHeader({ bot, accounts: _accounts }: ChatHeaderProps) {
         <IconButton label={bot.pinned ? t('Unpin from sidebar') : t('Pin to sidebar')} active={bot.pinned === true} onClick={() => togglePinBot(bot.id)}>
           {bot.pinned ? <PinOff /> : <Pin />}
         </IconButton>
-        {inspector.supportsWebSession && (
+        {inspector.supportsWebSession && runtimePlatform !== 'web' && (
           <IconButton
             label={webSessionOpen ? t('Back to conversation') : t('Show web session')}
             active={webSessionOpen}

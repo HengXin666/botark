@@ -1,5 +1,5 @@
 import { existsSync, unlinkSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { app, BrowserWindow, shell } from 'electron'
 import { attachWebViewManager, registerWebViewIpc } from './webViewIpc'
 import { attachMuseSessionManager, disposeAllMuseManagers, registerMuseIpc } from './muse/museIpc'
@@ -22,9 +22,19 @@ import { persistMihomoBindings, restoreMihomoFromFile, stopMihomo } from './muse
 import { hardenVaultFilePermissions, registerVaultIpc } from './securityVault'
 import { registerWorkspaceIpc, stopWorkspaces } from './mcp/hub'
 import { registerWorkspacePortalIpc, stopWorkspacePortals } from './mcp/workspacePortal'
+import { captureIpcHandlers, startWebGateway, stopWebGateway } from './web/webGateway'
+import { registerApiKeyIpc } from './apiKeys/apiKeyIpc'
 
 app.setName('BotArk')
-app.setPath('userData', join(app.getPath('appData'), 'botark'))
+const WEB_MODE = process.env['BOTARK_WEB'] === '1' || process.argv.includes('--web')
+const configuredDataDir = process.env['BOTARK_DATA_DIR']?.trim()
+app.setPath(
+  'userData',
+  configuredDataDir
+    ? resolve(configuredDataDir)
+    : join(app.getPath('appData'), WEB_MODE ? 'botark-web' : 'botark')
+)
+if (WEB_MODE) app.disableHardwareAcceleration()
 
 const isMac = process.platform === 'darwin'
 const isLinux = process.platform === 'linux'
@@ -56,7 +66,7 @@ try {
   const appData = app.getPath('appData')
   const newUserData = join(appData, 'botark')
   const legacyUserData = join(appData, 'bothub')
-  if (!existsSync(newUserData) && existsSync(legacyUserData)) {
+  if (!WEB_MODE && !existsSync(newUserData) && existsSync(legacyUserData)) {
     app.setPath('userData', legacyUserData)
   }
 } catch {
@@ -91,6 +101,40 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (error) => {
   console.error('[bothub] uncaught exception:', `${error.name}: ${error.message}`.slice(0, 300))
 })
+
+/**
+ * In web mode the browser is the visible UI. This hidden window only exists
+ * to own WebContentsViews (Muse/Hark login partitions) and to give every
+ * ipcMain handler a real sender/event identity.
+ */
+function createHostWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    show: false,
+    title: 'BotArk Web Host',
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  })
+
+  const views = attachWebViewManager(win)
+  attachMuseSessionManager(win, views)
+
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
+  })
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[botark-web] host renderer gone:', details.reason, 'exitCode=', details.exitCode)
+  })
+
+  // No UI is loaded here; about:blank is enough for IPC dispatch.
+  void win.loadURL('about:blank')
+  return win
+}
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -196,6 +240,7 @@ app.on('before-quit', () => {
   unwatchAllHarkStatuses()
   cancelAllHermesRuns('*')
   cancelAllAntigravityRuns('*')
+  void stopWebGateway()
   void stopMobileSyncServer()
   void stopWorkspaces()
   void stopWorkspacePortals()
@@ -219,9 +264,10 @@ app.whenReady().then(async () => {
   // Before any partition loads: otherwise the first requests go direct.
   await Promise.race([applyAllStoredProxies(), new Promise((r) => setTimeout(r, 5_000))])
   void restoreMihomoFromFile()
+  if (WEB_MODE) captureIpcHandlers()
   registerWebViewIpc()
   registerMuseIpc()
-  registerUpdaterIpc()
+  if (!WEB_MODE) registerUpdaterIpc()
   registerGrokIpc()
   registerHarkIpc()
   registerDotIpc()
@@ -229,12 +275,27 @@ app.whenReady().then(async () => {
   registerAntigravityIpc()
   registerMobileSyncIpc()
   registerVaultIpc()
+  registerApiKeyIpc()
   registerWorkspaceIpc(() => mainWindow)
   registerWorkspacePortalIpc(() => mainWindow)
-  mainWindow = createMainWindow()
-  startAutoUpdater()
+  mainWindow = WEB_MODE ? createHostWindow() : createMainWindow()
+  if (WEB_MODE) {
+    try {
+      await startWebGateway(mainWindow)
+    } catch (error) {
+      console.error('[web] failed to start gateway:', error)
+      app.quit()
+      return
+    }
+  } else {
+    startAutoUpdater()
+  }
 
   app.on('activate', () => {
+    if (WEB_MODE) {
+      if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createHostWindow()
+      return
+    }
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
     else mainWindow = createMainWindow()
   })

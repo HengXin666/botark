@@ -46,6 +46,7 @@ const AUDITED_STORES: ReadonlyArray<{ id: string; label: string; fileName: strin
   { id: 'dot-tokens', label: 'Dot OAuth 凭据保险箱', fileName: 'dot-accounts.json' },
   { id: 'hermes-accounts', label: 'Hermes 网关密钥保险箱', fileName: 'hermes-accounts.json' },
   { id: 'mobile-sync', label: 'iOS 配对设备令牌哈希库', fileName: 'mobile-sync-devices.json' },
+  { id: 'api-keys', label: 'REST API 密钥哈希库', fileName: 'api-keys.json' },
   { id: 'secrets-vault', label: '记忆快照与私密数据保险箱', fileName: VAULT_FILE }
 ]
 

@@ -1,0 +1,42 @@
+name: botark-web
+
+services:
+  botark:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: botark-web:latest
+    container_name: botark-web
+    restart: unless-stopped
+    init: true
+    shm_size: "1gb"
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      BOTARK_WEB: "1"
+      BOTARK_WEB_HOST: "0.0.0.0"
+      BOTARK_WEB_PORT: "8787"
+      BOTARK_DATA_DIR: "/data"
+      # Password is required. Set one of the following in deploy/.env:
+      # BOTARK_WEB_PASSWORD (plain, convenient) or BOTARK_WEB_PASSWORD_HASH (recommended).
+      BOTARK_WEB_PASSWORD: "${BOTARK_WEB_PASSWORD:-}"
+      BOTARK_WEB_PASSWORD_HASH: "${BOTARK_WEB_PASSWORD_HASH:-}"
+      BOTARK_WEB_PASSWORD_FILE: "${BOTARK_WEB_PASSWORD_FILE:-}"
+      BOTARK_WEB_SESSION_HOURS: "${BOTARK_WEB_SESSION_HOURS:-12}"
+      # SafeLine / reverse proxy on the same host: trust its X-Forwarded-* headers.
+      BOTARK_WEB_TRUST_PROXY: "${BOTARK_WEB_TRUST_PROXY:-1}"
+      # Set to 1 when users access the site through HTTPS (SafeLine TLS).
+      BOTARK_WEB_COOKIE_SECURE: "${BOTARK_WEB_COOKIE_SECURE:-0}"
+      # Optional: public origin for Origin checks when the proxy rewrites Host.
+      BOTARK_WEB_PUBLIC_ORIGIN: "${BOTARK_WEB_PUBLIC_ORIGIN:-}"
+      # API keys are created and revoked from the admin Settings UI.
+      # Optional exact origin for browser-based external API clients.
+      BOTARK_API_CORS_ORIGIN: "${BOTARK_API_CORS_ORIGIN:-}"
+    ports:
+      # Keep the app port on loopback; publish it through SafeLine instead.
+      - "127.0.0.1:${BOTARK_WEB_PUBLISH_PORT:-8787}:8787"
+    volumes:
+      - botark-data:/data
+
+volumes:
+  botark-data:

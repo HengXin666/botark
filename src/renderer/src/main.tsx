@@ -5,16 +5,18 @@ import { createRoot } from 'react-dom/client'
 import { registerBuiltInAdapters } from '@adapters/index'
 import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { isAndroidShell, startAndroidBridge } from './lib/androidBridge'
+import { installWebBridge } from './lib/webBridge'
 import MobileApp from './mobile/MobileApp'
 import App from './App'
 
-// Adapters must be registered before the store talks to them.
-registerBuiltInAdapters()
-
-// The Android WebView hosts this same bundle. Hydrate the store from the
-// native snapshot before React mounts.
+// The Android WebView and the browser gateway both inject a bridge before
+// adapters are constructed; adapters read window.electron at construction.
 const androidShell = isAndroidShell()
 if (androidShell) startAndroidBridge()
+else installWebBridge()
+
+// Adapters must be registered before the store talks to them.
+registerBuiltInAdapters()
 
 // Files dropped outside a drop zone must not navigate away from the app.
 for (const type of ['dragover', 'drop'] as const) {

@@ -10,6 +10,7 @@
  * - Optionally exports AES-256-GCM encrypted Hermes direct-connect credentials (or standalone `.botark-sync` AirDrop bundle)
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { existsSync } from 'node:fs'
 import { hostname, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -67,6 +68,8 @@ export interface MobileSyncServerOptions {
   getProxyNodes?: () => Promise<MobileProxyNode[]>
   onCommand?: (command: MobileRelayCommand) => void
   onStateChange?: (state: MobileSyncStateView) => void
+  /** Optional persisted workspace snapshot used by the headless REST API. */
+  snapshotPath?: string
 }
 
 /**
@@ -144,12 +147,16 @@ export class MobileSyncServer {
   private readonly options: MobileSyncServerOptions
   private readonly hostLabel: string
   private readonly appVersion: string
+  private readonly snapshotPath?: string
+  private snapshotSaveTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly liveListeners = new Set<(event: MobileBridgeLiveEvent) => void>()
 
   constructor(options: MobileSyncServerOptions = {}) {
     this.options = options
     this.hostLabel = (options.hostName || hostname() || 'BotArk Desktop').replace(/\.local$/i, '')
     this.appVersion = options.appVersion || '0.8.0'
-    this.latestSnapshot = {
+    this.snapshotPath = options.snapshotPath
+    this.latestSnapshot = this.loadSnapshotFromDisk() ?? {
       version: 1,
       updatedAtMs: Date.now(),
       hostName: this.hostLabel,
@@ -161,6 +168,43 @@ export class MobileSyncServer {
       approvals: {}
     }
     this.loadDevicesFromDisk()
+  }
+
+  private loadSnapshotFromDisk(): MobileWorkspaceSnapshot | null {
+    if (!this.snapshotPath || !existsSync(this.snapshotPath)) return null
+    try {
+      return readJsonFile<MobileWorkspaceSnapshot | null>(this.snapshotPath, null, (raw) => {
+        const value = raw as Partial<MobileWorkspaceSnapshot> | null
+        return Boolean(
+          value &&
+            value.version === 1 &&
+            Array.isArray(value.bots) &&
+            Array.isArray(value.groups) &&
+            value.accounts &&
+            typeof value.accounts === 'object'
+        )
+      })
+    } catch {
+      return null
+    }
+  }
+
+  private scheduleSnapshotSave(): void {
+    if (!this.snapshotPath || this.snapshotSaveTimer) return
+    this.snapshotSaveTimer = setTimeout(() => {
+      this.snapshotSaveTimer = null
+      this.writeSnapshotToDisk()
+    }, 1_500)
+    this.snapshotSaveTimer.unref?.()
+  }
+
+  private writeSnapshotToDisk(): void {
+    if (!this.snapshotPath) return
+    try {
+      writeJsonAtomic(this.snapshotPath, this.latestSnapshot, 0o600)
+    } catch {
+      /* a full disk must not break the live workspace */
+    }
   }
 
   private loadDevicesFromDisk(): void {
@@ -351,6 +395,11 @@ export class MobileSyncServer {
   }
 
   async stop(): Promise<MobileSyncStateView> {
+    if (this.snapshotSaveTimer) {
+      clearTimeout(this.snapshotSaveTimer)
+      this.snapshotSaveTimer = null
+    }
+    this.writeSnapshotToDisk()
     for (const ws of this.sockets.keys()) {
       try {
         ws.close(1001, 'Server stopped')
@@ -419,16 +468,36 @@ export class MobileSyncServer {
     return this.getState()
   }
 
+  getSnapshot(): MobileWorkspaceSnapshot {
+    return this.latestSnapshot
+  }
+
+  /** Subscribe to live events for headless clients (REST SSE). */
+  onLiveEvent(listener: (event: MobileBridgeLiveEvent) => void): () => void {
+    this.liveListeners.add(listener)
+    return () => {
+      this.liveListeners.delete(listener)
+    }
+  }
+
   updateSnapshot(snapshot: MobileWorkspaceSnapshot): void {
     this.latestSnapshot = {
       ...snapshot,
       hostName: this.hostLabel,
       updatedAtMs: Date.now()
     }
+    this.scheduleSnapshotSave()
     this.broadcastLiveEvent({ type: 'snapshot', snapshot: this.latestSnapshot })
   }
 
   broadcastLiveEvent(event: MobileBridgeLiveEvent): void {
+    for (const listener of this.liveListeners) {
+      try {
+        listener(event)
+      } catch {
+        /* a broken subscriber must not block mobile clients */
+      }
+    }
     if (this.sockets.size === 0) return
     const encoded = JSON.stringify(event)
     for (const ws of this.sockets.keys()) {

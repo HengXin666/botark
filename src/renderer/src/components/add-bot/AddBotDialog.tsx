@@ -13,7 +13,7 @@ import { PlatformGlyph } from '@/components/ui/PlatformGlyph'
 import { useMorphHeight } from '@/hooks/useMorphHeight'
 import { usePlatformLogin } from '@/hooks/usePlatformLogin'
 import { avatarFromFile } from '@/lib/avatarImage'
-import { getBridge } from '@/lib/bridge'
+import { getBridge, runtimePlatform } from '@/lib/bridge'
 import { cn } from '@/lib/cn'
 import { useBotStore } from '@/store/botStore'
 import { BLANK_TEMPLATE, BOT_TEMPLATES, localizeTemplate, type BotTemplate } from '@/data/botTemplates'
@@ -571,7 +571,7 @@ export function LoginWaiting({
   const [err, setErr] = useState('')
   const [rawInput, setRawInput] = useState('')
   const [refreshInput, setRefreshInput] = useState('')
-  const [showRaw, setShowRaw] = useState(false)
+  const [showRaw, setShowRaw] = useState(runtimePlatform === 'web')
   const [browserOpened, setBrowserOpened] = useState(false)
 
   useEffect(() => actionRef.current?.focus(), [])
@@ -656,24 +656,28 @@ export function LoginWaiting({
           windowClosed && !browserOpened ? 'text-ink' : 'shimmer-text'
         )}
       >
-        {browserOpened
-          ? '已在默认浏览器打开授权页，点击确认后将自动同步…'
-          : windowClosed
-            ? t('The sign-in window was closed')
-            : t('Waiting for you to sign in…')}
+        {runtimePlatform === 'web'
+          ? 'Web 版请粘贴凭据导入；服务端会保持登录会话。'
+          : browserOpened
+            ? '已在默认浏览器打开授权页，点击确认后将自动同步…'
+            : windowClosed
+              ? t('The sign-in window was closed')
+              : t('Waiting for you to sign in…')}
       </p>
 
       <div className="flex flex-wrap justify-center gap-2">
-        <Button
-          ref={actionRef}
-          variant={windowClosed && !browserOpened ? 'primary' : 'secondary'}
-          onClick={() => {
-            setBrowserOpened(false)
-            onReopen()
-          }}
-        >
-          {windowClosed && !browserOpened ? t('Open again') : t('Show window')}
-        </Button>
+        {runtimePlatform !== 'web' && (
+          <Button
+            ref={actionRef}
+            variant={windowClosed && !browserOpened ? 'primary' : 'secondary'}
+            onClick={() => {
+              setBrowserOpened(false)
+              onReopen()
+            }}
+          >
+            {windowClosed && !browserOpened ? t('Open again') : t('Show window')}
+          </Button>
+        )}
 
         {platformId === 'grok' && accountId && (
           <Button variant="secondary" disabled={busy} onClick={() => void openGrokInSystemBrowser()}>

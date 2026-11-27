@@ -23,6 +23,12 @@ import {
   type MobileRelayCommand,
   type MobileSyncStateView
 } from '@shared/mobileSync'
+import {
+  API_KEY_CHANNELS,
+  type ApiKeyAuditEntry,
+  type ApiKeyCreateResult,
+  type ApiKeyView
+} from '@shared/apiKeys'
 import { WORKSPACE_CHANNEL } from '@shared/workspace'
 import { WORKSPACE_PORTAL_CHANNEL } from '@shared/workspacePortal'
 
@@ -203,6 +209,14 @@ const bridge: BotHubBridge = {
       ipcRenderer.on(MOBILE_SYNC_CHANNELS.command, handler)
       return () => ipcRenderer.removeListener(MOBILE_SYNC_CHANNELS.command, handler)
     }
+  },
+  apiKeys: {
+    list: () => ipcRenderer.invoke(API_KEY_CHANNELS.list) as Promise<ApiKeyView[]>,
+    create: (name: string) =>
+      ipcRenderer.invoke(API_KEY_CHANNELS.create, name) as Promise<ApiKeyCreateResult>,
+    revoke: (id: string) => ipcRenderer.invoke(API_KEY_CHANNELS.revoke, id) as Promise<ApiKeyView>,
+    audit: (id: string, limit?: number) =>
+      ipcRenderer.invoke(API_KEY_CHANNELS.audit, id, limit) as Promise<ApiKeyAuditEntry[]>
   },
   workspace: {
     manage: (scope, request) => ipcRenderer.invoke(WORKSPACE_CHANNEL, scope, request),
