@@ -56,7 +56,8 @@ Admin-only metadata patch used to align a remote BotArk with the local desktop
 workspace without copying credentials or messages. It updates sidebar groups,
 bot display names and each bot's group assignment; bots are matched by the
 active account handle, so the same Hark account can have a different local bot
-id on each instance.
+id on each instance. The patch is persisted under `/data`, so a browser that
+opens later applies it automatically.
 
 ```json
 {
