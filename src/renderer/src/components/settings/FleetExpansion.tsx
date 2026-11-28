@@ -121,7 +121,16 @@ export function FleetExpansion() {
   const push = (line: string): void => setTrace((rows) => [...rows.slice(-LIST_LIMIT * 3), line])
 
   useEffect(() => {
+    let alive = true
+    void loadFleetStatus()
+      .then((next) => {
+        if (!alive) return
+        setStatus(next)
+        if (next.running) watch(next.job_id)
+      })
+      .catch(() => undefined)
     return () => {
+      alive = false
       if (pollRef.current !== null) window.clearTimeout(pollRef.current)
     }
   }, [])
@@ -197,6 +206,13 @@ export function FleetExpansion() {
       })
       push('提交 ' + (dryRun ? '预演' : '扩容') + ' 作业: ' + JSON.stringify(request))
       const reply = await startFleetJob(request)
+      if (reply.already_running) {
+        const live = await loadFleetStatus()
+        setStatus(live)
+        setError('网关已有作业在跑: ' + (live.job_id || reply.job_id) + ' (阶段 ' + (live.stage || '-') + ')')
+        if (live.running) watch(live.job_id)
+        return
+      }
       setStatus({
         ok: reply.ok,
         job_id: reply.job_id,
@@ -207,8 +223,7 @@ export function FleetExpansion() {
         summary: {},
         error: reply.error
       })
-      if (reply.already_running) setError('网关已有作业在跑: ' + reply.job_id)
-      else if (!reply.ok) setError(reply.error || 'run 返回失败')
+      if (!reply.ok) setError(reply.error || 'run 返回失败')
       if (reply.job_id) watch(reply.job_id)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
