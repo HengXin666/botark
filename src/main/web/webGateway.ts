@@ -13,7 +13,7 @@
  */
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, resolve, sep } from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import {
@@ -26,13 +26,13 @@ import {
   WebAuth
 } from './webAuth'
 import { RestApi } from './restApi'
-import {
-  applyMobileWorkspaceMetadataPatch,
-  getMobileWorkspaceSnapshot,
-  subscribeMobileSyncEvents
-} from '../mobileSync/mobileSyncIpc'
+import { getMobileWorkspaceSnapshot, subscribeMobileSyncEvents } from '../mobileSync/mobileSyncIpc'
 import { getApiKeyStore } from '../apiKeys/apiKeyIpc'
-import { WORKSPACE_METADATA_CHANNEL } from '@shared/workspaceMetadata'
+import {
+  applyWorkspaceMetadataPatch as applyWorkspaceMetadataToRenderer,
+  initWorkspaceMetadata,
+  readSavedWorkspaceMetadata
+} from './workspaceMetadata'
 
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown
 
@@ -156,26 +156,6 @@ function sendJson(res: ServerResponse, status: number, value: unknown): void {
     'Cache-Control': 'no-store'
   })
   res.end(body)
-}
-
-function workspaceMetadataPath(): string {
-  return join(app.getPath('userData'), 'workspace-metadata.json')
-}
-
-function applyWorkspaceMetadataToRenderer(payload: unknown): Promise<Record<string, unknown>> {
-  // Persist so a browser that opens later (or was offline during the push)
-  // still starts with the local workspace's group names and bot names.
-  writeFileSync(workspaceMetadataPath(), JSON.stringify(payload, null, 2), { mode: 0o600 })
-  broadcastEvent(WORKSPACE_METADATA_CHANNEL, [payload])
-  // The mirrored snapshot is what REST clients read, and it only moves when a
-  // browser pushes one. Apply the patch to the server copy as well so the
-  // names and groups are visible without an open browser tab.
-  try {
-    return Promise.resolve({ ok: true, ...applyMobileWorkspaceMetadataPatch(payload) })
-  } catch (error) {
-    console.error('[web] workspace metadata patch failed', serializeError(error))
-    return Promise.resolve({ ok: true })
-  }
 }
 
 function sendText(res: ServerResponse, status: number, body: string, contentType: string): void {
@@ -614,14 +594,7 @@ async function handleHttp(req: IncomingMessage, res: ServerResponse): Promise<vo
       authRequired(res)
       return
     }
-    let metadata: unknown = null
-    try {
-      const raw = readFileSync(workspaceMetadataPath(), 'utf8')
-      metadata = JSON.parse(raw) as unknown
-    } catch {
-      /* no saved metadata patch */
-    }
-    sendJson(res, 200, { ok: true, metadata })
+    sendJson(res, 200, { ok: true, metadata: readSavedWorkspaceMetadata() })
     return
   }
 
@@ -829,6 +802,11 @@ export async function startWebGateway(window: BrowserWindow): Promise<number> {
   })
   webAuth = auth
   const apiKeys = getApiKeyStore()
+  initWorkspaceMetadata({
+    broadcast: broadcastEvent,
+    invokeIpc: invokeCapturedHandler,
+    logError: (message, detail) => console.error(message, serializeError(detail))
+  })
   restApi = new RestApi({
     version: app.getVersion(),
     getSnapshot: getMobileWorkspaceSnapshot,

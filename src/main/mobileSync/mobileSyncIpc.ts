@@ -217,8 +217,7 @@ export function applyMobileWorkspaceMetadataPatch(
   options: WorkspaceMetadataApplyOptions = { createMissingBots: true }
 ): WorkspaceMetadataApplyResult {
   const server = ensureServer()
-  const current = server.getSnapshot()
-  const patched = applyWorkspaceMetadataPatch(current, payload, options)
+  const patched = applyWorkspaceMetadataPatch(server.getSnapshot(), payload, options)
   server.applySnapshotPatch(patched.snapshot)
   return patched.result
 }
