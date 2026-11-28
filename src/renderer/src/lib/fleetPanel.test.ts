@@ -1,94 +1,76 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRunRequest,
-  nextRegisterText,
+  clampAdd,
+  clampDelay,
+  expansionSummary,
   planHeadline,
-  inviterFieldHint,
   mirrorIsOld,
   registerChannelView,
-  registerFieldValue,
   stageTierText,
   tierSourceNotice,
   unmaterializedBots
 } from './fleetPanel'
-import { STALE_AFTER_S, parseFleetPlan, parseFleetRunReply } from '@shared/fleet'
+import { parseFleetPlan, parseFleetRunReply, fleetPlanQuery } from '@shared/fleet'
 
 const plan = (registerCount: number | null) =>
   parseFleetPlan({ ok: true, target_pro2: 17, register_count: registerCount, fuel_count: 35 }, 200)
 
-describe('register field and run payload', () => {
-  it('follows the gateway plan number until the user edits the field', () => {
-    expect(nextRegisterText(plan(35), false, '51')).toBe('35')
-    expect(nextRegisterText(plan(13), false, '35')).toBe('13')
-  })
+const derived = (fields: Record<string, unknown>) =>
+  parseFleetPlan({ ok: true, pro2_count: 16, derived_target_pro2: 18, inviter_have: 2, register_count: 35, ...fields }, 200)
 
-  it('leaves the field empty when the gateway omits register_count', () => {
-    expect(nextRegisterText(plan(null), false, '51')).toBe('')
-    expect(nextRegisterText(null, false, '51')).toBe('')
-  })
-
-  it('never overwrites a hand-typed value', () => {
-    expect(nextRegisterText(plan(35), true, '0')).toBe('0')
-    expect(nextRegisterText(plan(35), true, '9')).toBe('9')
-  })
-
-  it('keeps the fuel rule fallback for the untouched initial field', () => {
-    expect(registerFieldValue(null, 51)).toBe('51')
-    expect(registerFieldValue(plan(35), 51)).toBe('35')
-  })
-
-  it('omits register_count so the gateway owns the fuel rule', () => {
-    const request = buildRunRequest({
-      targetPro2: 17,
-      inviterCount: '',
-      registerCount: '35',
-      registerTouched: false,
-      fuelPerInviter: 3,
-      prefix: 'hkfz',
-      delay: 25,
-      dryRun: false
-    })
+describe('two field run payload', () => {
+  it('sends only add and delay when the gateway reads add', () => {
+    const request = buildRunRequest({ add: 3, delay: 40, plan: derived({}), planAddAware: true, dryRun: false })
+    expect(request).toEqual({ add: 3, delay: 40, dry_run: false })
+    expect('target_pro2' in request).toBe(false)
     expect('register_count' in request).toBe(false)
-    expect('inviter_count' in request).toBe(false)
-    expect(request).toEqual({
-      target_pro2: 17,
-      fuel_per_inviter: 3,
-      prefix: 'hkfz',
-      delay: 25,
-      dry_run: false
-    })
+    expect('prefix' in request).toBe(false)
+    expect('domains' in request).toBe(false)
   })
 
-  it('sends an explicit register_count once the user types one', () => {
-    const request = buildRunRequest({
-      targetPro2: 17,
-      inviterCount: '12',
-      registerCount: '0',
-      registerTouched: true,
-      fuelPerInviter: 3,
-      prefix: ' hkfz ',
-      delay: 25,
-      dryRun: true
-    })
-    expect(request.register_count).toBe(0)
-    expect(request.inviter_count).toBe(12)
-    expect(request.prefix).toBe('hkfz')
-    expect(request.dry_run).toBe(true)
+  it('spells out target and inviter when the gateway ignores add', () => {
+    const request = buildRunRequest({ add: 3, delay: 40, plan: derived({}), planAddAware: false, dryRun: false })
+    expect(request.target_pro2).toBe(21)
+    expect(request.inviter_count).toBe(5)
+    expect(request.delay).toBe(40)
   })
 
-  it('ignores an empty hand-edited field and falls back on the default prefix', () => {
-    const request = buildRunRequest({
-      targetPro2: 17,
-      inviterCount: '',
-      registerCount: '   ',
-      registerTouched: true,
-      fuelPerInviter: 3,
-      prefix: '',
-      delay: 25,
-      dryRun: true
-    })
-    expect('register_count' in request).toBe(false)
-    expect(request.prefix).toBe('hkfz')
+  it('keeps only the two business fields in the add aware payload', () => {
+    const request = buildRunRequest({ add: 3, delay: 40, plan: derived({}), planAddAware: true, dryRun: false })
+    expect(Object.keys(request).sort()).toEqual(['add', 'delay', 'dry_run'])
+  })
+
+  it('falls back on the plain target when the plan has no derived one', () => {
+    const plain = parseFleetPlan({ ok: true, pro2_count: 16, target_pro2: 17, inviter_have: 2 }, 200)
+    const request = buildRunRequest({ add: 2, delay: 25, plan: plain, planAddAware: false, dryRun: false })
+    expect(request.target_pro2).toBe(19)
+    expect(request.inviter_count).toBe(4)
+  })
+
+  it('keeps add and delay inside the accepted range', () => {
+    expect(clampAdd(0)).toBe(1)
+    expect(clampAdd(999)).toBe(50)
+    expect(clampAdd(Number.NaN)).toBe(1)
+    expect(clampDelay(1)).toBe(5)
+    expect(clampDelay(9999)).toBe(120)
+    expect(clampDelay(25)).toBe(25)
+  })
+})
+
+describe('expansion summary line', () => {
+  it('says where Pro2 stands and how many accounts would be registered', () => {
+    const line = expansionSummary(derived({}), 2)
+    expect(line).toContain('当前 Pro2 16 -> 目标 20')
+    expect(line).toContain('本次将注册 35 个号')
+  })
+
+  it('says no registration is needed when the plan wants none', () => {
+    expect(expansionSummary(derived({ register_count: 0 }), 1)).toContain('本次不需注册新号')
+  })
+
+  it('asks for a plan read before it can say anything', () => {
+    expect(expansionSummary(null, 1)).toContain('还没读到网关计划')
   })
 })
 
@@ -358,31 +340,15 @@ describe('old remote mirror', () => {
   })
 })
 
-describe('inviter field hint', () => {
-  const withProbe = (probe: unknown) => parseFleetPlan({ ok: true, probe }, 200)
-
-  it('keeps the plain prompt before a plan is read', () => {
-    expect(inviterFieldHint(null)).toBe('留空读网关盘点')
+describe('plan request carries add', () => {
+  it('puts add in the plan query when the gateway reads it', () => {
+    expect(fleetPlanQuery({ add: 4 })).toBe('add=4')
   })
 
-  it('marks an expired snapshot as possibly overstating capacity', () => {
-    const hint = inviterFieldHint(withProbe({ age_s: STALE_AFTER_S + 60, stale: true }))
-    expect(hint).toContain('已过期')
-    expect(hint).toContain('名额可能虚高')
-  })
-
-  it('calls a fresh snapshot live', () => {
-    const hint = inviterFieldHint(withProbe({ age_s: 30, stale: false }))
-    expect(hint).toContain('实时')
-    expect(hint).not.toContain('虚高')
-  })
-
-  it('says a rescan is running', () => {
-    const hint = inviterFieldHint(withProbe({ age_s: 30, stale: false, running: true }))
-    expect(hint).toContain('后台正在重扫')
-  })
-
-  it('falls back to the prompt when the plan has no probe', () => {
-    expect(inviterFieldHint(parseFleetPlan({ ok: true }, 200))).toBe('留空读网关盘点')
+  it('keeps the spelled out target for an instance without add', () => {
+    const query = fleetPlanQuery({ target_pro2: 21, inviter_count: 5 })
+    expect(query).toContain('target_pro2=21')
+    expect(query).toContain('inviter_count=5')
+    expect(query).not.toContain('add=')
   })
 })

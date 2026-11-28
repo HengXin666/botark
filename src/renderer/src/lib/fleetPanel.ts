@@ -5,10 +5,12 @@ import { getBridge } from '@/lib/bridge'
 import { useBotStore } from '@/store/botStore'
 import { loadMirrorSettings, mirrorWorkspaceToVps, saveMirrorSettings } from '@/lib/remoteMirror'
 import {
-  FLEET_DEFAULT_PREFIX,
+  FLEET_DEFAULT_DELAY,
+  FLEET_MAX_ADD,
+  FLEET_MAX_DELAY,
+  FLEET_MIN_ADD,
+  FLEET_MIN_DELAY,
   STALE_AFTER_S,
-  defaultRegisterCount,
-  probeIsStale,
   snapshotAge,
   diffWorkspace,
   localWorkspaceRows,
@@ -126,86 +128,61 @@ async function resolveMirrorTarget(): Promise<{ url: string; token: string }> {
   return preloaded
 }
 
-/** Fuel count the panel fills in when the caller leaves the field empty. */
-export function suggestRegisterCount(targetPro2: number, fuelPerInviter: number): number {
-  return defaultRegisterCount(targetPro2, fuelPerInviter)
-}
-
-/** Input value for the register field: the plan number when known, else the fuel rule. */
-export function registerFieldValue(plan: FleetPlan | null, fallback: number): string {
-  if (plan?.register_count !== null && plan?.register_count !== undefined) {
-    return String(plan.register_count)
-  }
-  return String(fallback)
-}
-
-/**
- * Build the register field text after a plan read: empty when the gateway left
- * the field out, the gateway number otherwise, and untouched when hand edited.
- */
-export function nextRegisterText(plan: FleetPlan | null, touched: boolean, current: string): string {
-  if (touched) return current
-  const planned = plan?.register_count
-  if (planned === null || planned === undefined) return ''
-  return String(planned)
-}
-
-/**
- * Hint for the inviter count field. A stale probe snapshot reports more open
- * slots than the pool really has, so the field says the number is old instead
- * of letting it read as a live capacity.
- */
-export function inviterFieldHint(plan: FleetPlan | null): string {
-  if (!plan) return '留空读网关盘点'
-  const probe = plan.probe
-  if (!probe) return '留空读网关盘点'
-  const age = snapshotAge(probe.age_s)
-  if (probe.running) return '快照 ' + age + ', 后台正在重扫'
-  if (probeIsStale(probe)) return '快照 ' + age + ', 已过期, 名额可能虚高'
-  return '快照 ' + age + ', 实时'
-}
-
-/** Split a comma separated domain list, dropping blanks and duplicates. */
-export function parseDomains(text: string): string[] {
-  const seen = new Set<string>()
-  for (const part of text.split(',')) {
-    const domain = part.trim().toLowerCase()
-    if (domain !== '') seen.add(domain)
-  }
-  return [...seen]
-}
-
-/**
- * Build the run payload. An empty or untouched register field is omitted so the
- * gateway keeps ownership of the fuel rule instead of the panel pinning a value.
- */
-export function buildRunRequest(input: {
-  targetPro2: number
-  inviterCount: string
-  registerCount: string
-  registerTouched: boolean
-  fuelPerInviter: number
-  prefix: string
+export interface RunRequestInput {
+  add: number
   delay: number
-  domains?: string
+  plan: FleetPlan | null
+  planAddAware: boolean
   dryRun: boolean
-}): FleetRunRequest {
-  const request: FleetRunRequest = {
-    target_pro2: input.targetPro2,
-    fuel_per_inviter: input.fuelPerInviter,
-    prefix: input.prefix.trim() || FLEET_DEFAULT_PREFIX,
-    delay: input.delay,
-    dry_run: input.dryRun
+}
+
+/**
+ * Build the run payload from the two settings the panel keeps. An instance that
+ * does not read the add field would treat an absent target as its own default,
+ * so that case carries the plan numbers the add value was meant to shift.
+ */
+export function buildRunRequest(input: RunRequestInput): FleetRunRequest {
+  const add = clampAdd(input.add)
+  const request: FleetRunRequest = { delay: clampDelay(input.delay), dry_run: input.dryRun }
+  if (input.planAddAware) {
+    request.add = add
+    return request
   }
-  const inviter = input.inviterCount.trim()
-  if (inviter !== '') request.inviter_count = Math.max(0, Math.trunc(Number(inviter)) || 0)
-  const domains = parseDomains(input.domains ?? '')
-  if (domains.length > 0) request.domains = domains
-  const register = input.registerCount.trim()
-  if (input.registerTouched && register !== '') {
-    request.register_count = Math.max(0, Math.trunc(Number(register)) || 0)
-  }
+  const plan = input.plan
+  const target = (plan?.derived_target_pro2 ?? plan?.target_pro2 ?? 0) + add
+  request.target_pro2 = Math.max(1, Math.trunc(target))
+  const have = plan?.inviter_have
+  if (have !== null && have !== undefined) request.inviter_count = Math.max(1, Math.trunc(have + add))
   return request
+}
+
+/** Keep the add value inside the range the gateway accepts. */
+export function clampAdd(value: number): number {
+  const parsed = Math.trunc(Number(value))
+  if (!Number.isFinite(parsed)) return FLEET_MIN_ADD
+  return Math.min(FLEET_MAX_ADD, Math.max(FLEET_MIN_ADD, parsed))
+}
+
+/** Keep the delay inside the range the gateway accepts. */
+export function clampDelay(value: number): number {
+  const parsed = Math.trunc(Number(value))
+  if (!Number.isFinite(parsed)) return FLEET_DEFAULT_DELAY
+  return Math.min(FLEET_MAX_DELAY, Math.max(FLEET_MIN_DELAY, parsed))
+}
+
+/**
+ * One readonly line saying what this click will do: where the Pro2 count stands
+ * and how many accounts the gateway would register.
+ */
+export function expansionSummary(plan: FleetPlan | null, add: number): string {
+  if (!plan) return '还没读到网关计划, 点一次就能看到本次会注册几个号'
+  const now = plan.pro2_count ?? 0
+  const target = (plan.derived_target_pro2 ?? plan.target_pro2 ?? 0) + add
+  const register = plan.register_count
+  const head = '当前 Pro2 ' + now + ' -> 目标 ' + target
+  if (register === null || register === undefined) return head
+  if (register === 0) return head + ' / 本次不需注册新号'
+  return head + ' / 本次将注册 ' + register + ' 个号'
 }
 
 export type RegisterChannelTone = 'hidden' | 'progress' | 'failure'

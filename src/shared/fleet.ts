@@ -3,6 +3,10 @@
  */
 
 export const FLEET_DEFAULT_TARGET_PRO2 = 17
+export const FLEET_MIN_ADD = 1
+export const FLEET_MAX_ADD = 50
+export const FLEET_MIN_DELAY = 5
+export const FLEET_MAX_DELAY = 120
 export const FLEET_DEFAULT_FUEL_PER_INVITER = 3
 export const FLEET_DEFAULT_PREFIX = 'hkfz'
 export const FLEET_DEFAULT_DELAY = 25
@@ -10,7 +14,8 @@ export const FLEET_DEFAULT_SHOW_RATE = 0.25
 export const STALE_AFTER_S = 900
 
 export interface FleetPlanRequest {
-  target_pro2: number
+  target_pro2?: number
+  add?: number
   inviter_count?: number
   show_rate?: number
   refresh?: boolean
@@ -73,6 +78,8 @@ export interface FleetPlan {
   fuel_count: number | null
   target_pro2: number | null
   target_gap: number | null
+  derived_target_pro2: number | null
+  inviter_have: number | null
   no_expansion: boolean
   inviter_count: number | null
   inviter_gap: number | null
@@ -123,11 +130,12 @@ export interface FleetStatus {
 }
 
 export interface FleetRunRequest {
-  target_pro2: number
+  add?: number
+  target_pro2?: number
   inviter_count?: number
   register_count?: number
-  fuel_per_inviter: number
-  prefix: string
+  fuel_per_inviter?: number
+  prefix?: string
   delay: number
   dry_run: boolean
   domains?: string[]
@@ -282,6 +290,8 @@ export function parseFleetPlan(raw: unknown, status = 200): FleetPlan {
     fuel_count: asNumber(doc.fuel_count),
     target_pro2: asNumber(doc.target_pro2),
     target_gap: asNumber(doc.target_gap) ?? asNumber(doc.pro2_gap),
+    derived_target_pro2: asNumber(doc.derived_target_pro2),
+    inviter_have: asNumber(doc.inviter_have),
     no_expansion: asBool(doc.no_expansion),
     inviter_count: asNumber(doc.inviter_count),
     inviter_gap: asNumber(doc.inviter_gap),
@@ -386,7 +396,12 @@ export function parseFleetRunReply(raw: unknown, status = 200): FleetRunReply {
 
 export function fleetPlanQuery(request: FleetPlanRequest): string {
   const params = new URLSearchParams()
-  params.set('target_pro2', String(Math.max(0, Math.trunc(request.target_pro2))))
+  if (typeof request.add === 'number' && Number.isFinite(request.add)) {
+    params.set('add', String(Math.max(1, Math.trunc(request.add))))
+  }
+  if (typeof request.target_pro2 === 'number' && Number.isFinite(request.target_pro2)) {
+    params.set('target_pro2', String(Math.max(0, Math.trunc(request.target_pro2))))
+  }
   if (typeof request.inviter_count === 'number' && Number.isFinite(request.inviter_count)) {
     params.set('inviter_count', String(Math.max(0, Math.trunc(request.inviter_count))))
   }

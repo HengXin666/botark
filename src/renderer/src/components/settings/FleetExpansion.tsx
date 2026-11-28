@@ -14,24 +14,24 @@ import {
 import { Button } from '@/components/ui/Button'
 import {
   FLEET_DEFAULT_DELAY,
-  FLEET_DEFAULT_FUEL_PER_INVITER,
-  FLEET_DEFAULT_PREFIX,
-  FLEET_DEFAULT_SHOW_RATE,
-  FLEET_DEFAULT_TARGET_PRO2,
-  probeIsStale,
+  FLEET_MAX_ADD,
+  FLEET_MAX_DELAY,
+  FLEET_MIN_ADD,
+  FLEET_MIN_DELAY,
   type FleetPlan,
+  type FleetPlanRequest,
   type FleetStatus
 } from '@shared/fleet'
 import {
   buildRunRequest,
+  clampAdd,
+  clampDelay,
   compareWithVps,
+  expansionSummary,
   loadFleetPlan,
   loadFleetStatus,
-  inviterFieldHint,
   localSnapshot,
-  nextRegisterText,
   startFleetJob,
-  suggestRegisterCount,
   syncLocalToVps,
   type LocalRemoteDiff
 } from '@/lib/fleetPanel'
@@ -41,6 +41,24 @@ import { FleetDiffBlock, FleetPlanBlock, FleetStatusBlock } from '@/components/h
 const POLL_MS = 4000
 const ONE_CLICK_TIMEOUT_MS = 45 * 60 * 1000
 const LIST_LIMIT = 8
+/** True when the plan answered the add field instead of a plain target. */
+function planReadsAdd(plan: FleetPlan): boolean {
+  return typeof plan.derived_target_pro2 === 'number'
+}
+
+/**
+ * Plan request for an instance that does not read add: the target and inviter
+ * count are spelled out so the add value still moves the pool forward.
+ */
+function planRequestFrom(plan: FleetPlan | null, add: number, refresh = false): FleetPlanRequest {
+  const target = (plan?.target_pro2 ?? 0) + add
+  const request: FleetPlanRequest = { target_pro2: Math.max(1, Math.trunc(target)) }
+  const have = plan?.inviter_have
+  if (have !== null && have !== undefined) request.inviter_count = Math.max(1, Math.trunc(have + add))
+  if (refresh) request.refresh = true
+  return request
+}
+
 const ONECLICK_STEP_LABEL: Record<string, string> = {
   plan: '读计划',
   expand: '扩容',
@@ -51,32 +69,15 @@ const ONECLICK_STEP_LABEL: Record<string, string> = {
 }
 
 interface PanelConfig {
-  targetPro2: number
-  inviterCount: string
-  registerCount: string
-  fuelPerInviter: number
-  prefix: string
+  add: number
   delay: number
-  domains: string
-  showRate: number
-  dryRun: boolean
 }
 
-const DEFAULT_CONFIG: PanelConfig = {
-  targetPro2: FLEET_DEFAULT_TARGET_PRO2,
-  inviterCount: '',
-  registerCount: String(suggestRegisterCount(FLEET_DEFAULT_TARGET_PRO2, FLEET_DEFAULT_FUEL_PER_INVITER)),
-  fuelPerInviter: FLEET_DEFAULT_FUEL_PER_INVITER,
-  prefix: FLEET_DEFAULT_PREFIX,
-  delay: FLEET_DEFAULT_DELAY,
-  domains: '',
-  showRate: FLEET_DEFAULT_SHOW_RATE,
-  dryRun: false
-}
+const DEFAULT_CONFIG: PanelConfig = { add: FLEET_MIN_ADD, delay: FLEET_DEFAULT_DELAY }
 
 function toInt(value: string, fallback: number): number {
   const parsed = Number.parseInt(value, 10)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 function Field(props: {
@@ -110,7 +111,7 @@ function Field(props: {
 /** One click: plan, run and watch the gateway Pro2 expansion job. */
 export function FleetExpansion() {
   const [config, setConfig] = useState<PanelConfig>(DEFAULT_CONFIG)
-  const [registerTouched, setRegisterTouched] = useState(false)
+  const [planAddAware, setPlanAddAware] = useState(true)
   const [plan, setPlan] = useState<FleetPlan | null>(null)
   const [status, setStatus] = useState<FleetStatus | null>(null)
   const [diff, setDiff] = useState<LocalRemoteDiff | null>(null)
@@ -144,37 +145,18 @@ export function FleetExpansion() {
     setError('')
     setTrace([])
     setBusy('oneclick')
+    const add = clampAdd(config.add)
     void runOneClick(
       {
-        plan: {
-          target_pro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
-          inviter_count: config.inviterCount.trim() === '' ? undefined : toInt(config.inviterCount, 0),
-          show_rate: config.showRate
-        },
-        run: buildRunRequest({
-          targetPro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
-          inviterCount: config.inviterCount,
-          registerCount: config.registerCount,
-          registerTouched,
-          fuelPerInviter: config.fuelPerInviter,
-          prefix: config.prefix,
-          delay: config.delay,
-          domains: config.domains,
-          dryRun: false
-        }),
+        plan: planAddAware ? { add } : plan ? planRequestFrom(plan, add) : { add },
+        run: buildRunRequest({ add, delay: clampDelay(config.delay), plan, planAddAware, dryRun: false }),
         pollMs: POLL_MS,
         jobTimeoutMs: ONE_CLICK_TIMEOUT_MS
       },
       {
         onState: setOneClick,
         onTrace: push,
-        onPlan: (next) => {
-          setPlan(next)
-          setConfig((current) => ({
-            ...current,
-            registerCount: nextRegisterText(next, registerTouched, current.registerCount)
-          }))
-        },
+        onPlan: setPlan,
         onStatus: setStatus,
         onDiff: (next) => setDiff(next)
       }
@@ -182,19 +164,16 @@ export function FleetExpansion() {
   }
 
   const fetchPlan = async (refresh = false): Promise<FleetPlan> => {
-    const inviter = config.inviterCount.trim() === '' ? undefined : toInt(config.inviterCount, 0)
-    const next = await loadFleetPlan({
-      target_pro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
-      inviter_count: inviter,
-      show_rate: config.showRate,
-      refresh
-    })
+    const add = clampAdd(config.add)
+    let aware = planAddAware
+    let next = await loadFleetPlan(aware ? { add, refresh } : planRequestFrom(plan, add, refresh))
+    if (aware && !planReadsAdd(next)) {
+      aware = false
+      setPlanAddAware(false)
+      next = await loadFleetPlan(planRequestFrom(next, add, refresh))
+    }
     setPlan(next)
     if (!next.ok) setError(next.error || '网关 plan 未返回 ok')
-    setConfig((current) => ({
-      ...current,
-      registerCount: nextRegisterText(next, registerTouched, current.registerCount)
-    }))
     return next
   }
 
@@ -239,13 +218,10 @@ export function FleetExpansion() {
       const planned = plan ?? (await fetchPlan())
       if (!planned.ok) throw new Error(planned.error || 'plan 未就绪, 不发起 run')
       const request = buildRunRequest({
-        targetPro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
-        inviterCount: config.inviterCount,
-        registerCount: config.registerCount,
-        registerTouched,
-        fuelPerInviter: config.fuelPerInviter,
-        prefix: config.prefix,
-        delay: config.delay,
+        add: clampAdd(config.add),
+        delay: clampDelay(config.delay),
+        plan: planned,
+        planAddAware,
         dryRun
       })
       push('提交 ' + (dryRun ? '预演' : '扩容') + ' 作业: ' + JSON.stringify(request))
@@ -322,58 +298,28 @@ export function FleetExpansion() {
         <div>
           <span className="text-[13px] font-medium text-ink">Hark 号池一键扩容</span>
           <p className="mt-0.5 text-[11px] text-ink-secondary">
-            先向网关要计划, 再发起作业并轮询每个阶段; 同步与一致性校验走 VPS API.
+            填两个数就行: 要新增几个 Pro2, 和每个号之间等几秒. 其余参数由网关按号池现状算.
           </p>
         </div>
         <span className="text-[11px] text-ink-muted">本地 Hark bot {localCount}</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <Field
-          label="目标 Pro2 数"
-          value={String(config.targetPro2)}
-          onChange={(next) => patch({ targetPro2: toInt(next, FLEET_DEFAULT_TARGET_PRO2) })}
-        />
-        <Field
-          label="可用邀请人数"
-          value={config.inviterCount}
-          placeholder="留空读网关盘点"
-          hint={inviterFieldHint(plan)}
-          tone={probeIsStale(plan?.probe ?? null) ? 'warn' : 'muted'}
-          onChange={(next) => patch({ inviterCount: next })}
-        />
-        <Field
-          label="新注册数量"
-          value={config.registerCount}
-          hint={registerTouched ? '手填值' : '跟随计划'}
-          onChange={(next) => {
-            setRegisterTouched(true)
-            patch({ registerCount: next })
-          }}
-        />
-        <Field
-          label="每人补被邀请人"
-          value={String(config.fuelPerInviter)}
-          onChange={(next) => patch({ fuelPerInviter: toInt(next, FLEET_DEFAULT_FUEL_PER_INVITER) })}
-        />
-        <Field
-          label="邮箱前缀"
-          value={config.prefix}
-          onChange={(next) => patch({ prefix: next })}
+          label="新增 Pro2 数量"
+          value={String(config.add)}
+          hint={'范围 ' + FLEET_MIN_ADD + '..' + FLEET_MAX_ADD}
+          onChange={(next) => patch({ add: toInt(next, FLEET_MIN_ADD) })}
         />
         <Field
           label="注册间隔(秒)"
           value={String(config.delay)}
+          hint={'范围 ' + FLEET_MIN_DELAY + '..' + FLEET_MAX_DELAY}
           onChange={(next) => patch({ delay: toInt(next, FLEET_DEFAULT_DELAY) })}
         />
-        <Field
-          label="注册邮箱域"
-          value={config.domains}
-          placeholder="空=网关自选"
-          hint="当前脚本只收第一个域"
-          onChange={(next) => patch({ domains: next })}
-        />
       </div>
+
+      <p className="mt-2 text-[11px] text-ink-secondary">{expansionSummary(plan, clampAdd(config.add))}</p>
 
       {oneClick && (
         <div
