@@ -291,4 +291,16 @@ describe('stage tier text', () => {
     const text = stageTierText(stage({ pro2: 0, pro1: 0, failed: 3, unknown: 0, available: true }))
     expect(text).toContain('失败 3')
   })
+
+  it('shows a registered free tier account instead of hiding it', () => {
+    const text = stageTierText(stage({ pro2: 0, pro1: 0, skip: 3, failed: 0, unknown: 0, available: true }))
+    expect(text).toContain('免费档 3')
+    expect(text).toContain('不能当满血号用')
+  })
+
+  it('reads a tally without skip as the older gateway shape', () => {
+    const text = stageTierText(stage({ pro2: 1, pro1: 0, failed: 0, unknown: 0, available: true }))
+    expect(text).toBe('实测档位: Pro2 1 / Pro1 0')
+    expect(text).not.toContain('免费档')
+  })
 })

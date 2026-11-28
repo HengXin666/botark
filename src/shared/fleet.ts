@@ -64,6 +64,7 @@ export interface FleetPlan {
   pool_accounts: number | null
   pro2_count: number | null
   pro1_count: number | null
+  skip_count: number | null
   unknown: number | null
   unreachable: number | null
   available_count: number | null
@@ -89,6 +90,7 @@ export interface FleetPlan {
 export interface FleetStageTiers {
   pro2: number | null
   pro1: number | null
+  skip: number | null
   failed: number | null
   unknown: number | null
   available: boolean
@@ -270,6 +272,7 @@ export function parseFleetPlan(raw: unknown, status = 200): FleetPlan {
     pool_accounts: asNumber(doc.pool_accounts),
     pro2_count: pro2,
     pro1_count: pro1,
+    skip_count: asNumber(doc.skip_count),
     unknown: asNumber(doc.unknown),
     unreachable: asNumber(doc.unreachable),
     available_count: asNumber(doc.available_count),
@@ -312,6 +315,7 @@ function parseStageTiers(raw: unknown): FleetStageTiers | null {
   return {
     pro2: asNumber(doc.pro2),
     pro1: asNumber(doc.pro1),
+    skip: asNumber(doc.skip),
     failed: asNumber(doc.failed),
     unknown: asNumber(doc.unknown),
     available: asBool(doc.available)

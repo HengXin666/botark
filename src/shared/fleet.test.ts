@@ -421,7 +421,7 @@ describe('stage tiers', () => {
         }
       ]
     })
-    expect(status.stages[0].tiers).toEqual({ pro2: 1, pro1: 1, failed: 1, unknown: 0, available: true })
+    expect(status.stages[0].tiers).toEqual({ pro2: 1, pro1: 1, skip: null, failed: 1, unknown: 0, available: true })
   })
 
   it('reports unavailable tiers instead of inventing zeros', () => {
@@ -444,6 +444,28 @@ describe('stage tiers', () => {
     })
     expect(status.stages[0].tiers?.available).toBe(false)
     expect(status.stages[0].tiers?.pro2).toBeNull()
+  })
+
+  it('reads the free tier count the gateway now reports', () => {
+    const status = parseFleetStatus({
+      ok: true,
+      running: true,
+      stages: [
+        {
+          name: 'register',
+          stage: 'register',
+          status: 'running',
+          success: 3,
+          failed: 0,
+          total: 9,
+          error: '',
+          detail: '',
+          tiers: { pro2: 0, pro1: 0, skip: 3, failed: 0, unknown: 0, available: true }
+        }
+      ]
+    })
+    expect(status.stages[0].tiers?.skip).toBe(3)
+    expect(status.stages[0].tiers?.available).toBe(true)
   })
 
   it('treats a stage without tiers as absent', () => {

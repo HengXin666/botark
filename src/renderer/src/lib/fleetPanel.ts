@@ -218,9 +218,14 @@ export function stageTierText(stage: FleetStage): string | null {
   const parts: string[] = []
   if (tiers.pro2 !== null) parts.push('Pro2 ' + tiers.pro2)
   if (tiers.pro1 !== null) parts.push('Pro1 ' + tiers.pro1)
+  if (tiers.skip !== null && tiers.skip > 0) parts.push('免费档 ' + tiers.skip)
   if (tiers.unknown !== null && tiers.unknown > 0) parts.push('未知档 ' + tiers.unknown)
   if (tiers.failed !== null && tiers.failed > 0) parts.push('失败 ' + tiers.failed)
-  return parts.length > 0 ? '实测档位: ' + parts.join(' / ') : '实测档位为空'
+  if (parts.length === 0) return '实测档位为空'
+  const head = '实测档位: ' + parts.join(' / ')
+  return tiers.skip !== null && tiers.skip > 0
+    ? head + ' (免费档注册成功但额度不足, 不能当满血号用)'
+    : head
 }
 
 /**
@@ -251,5 +256,6 @@ export function planHeadline(plan: FleetPlan): string {
   if (plan.fuel_count !== null) parts.push('燃料号 ' + plan.fuel_count)
   if (plan.expected_pro2 !== null) parts.push('预计 Pro2 ' + plan.expected_pro2)
   if (plan.inviter_gap !== null) parts.push('邀请人缺口 ' + plan.inviter_gap)
+  if (plan.skip_count !== null && plan.skip_count > 0) parts.push('池内免费档 ' + plan.skip_count)
   return parts.join(' / ')
 }
