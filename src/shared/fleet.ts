@@ -7,6 +7,7 @@ export const FLEET_DEFAULT_FUEL_PER_INVITER = 3
 export const FLEET_DEFAULT_PREFIX = 'hkfz'
 export const FLEET_DEFAULT_DELAY = 25
 export const FLEET_DEFAULT_SHOW_RATE = 0.25
+export const STALE_AFTER_S = 900
 
 export interface FleetPlanRequest {
   target_pro2: number
@@ -41,6 +42,7 @@ export interface FleetInviter {
   friends_to_next_reward: number | null
   code: string
   rewards_earned: number | null
+  counted: number | null
   source: string
 }
 
@@ -54,6 +56,7 @@ export interface FleetPlan {
   available_count: number | null
   inviters: FleetInviter[]
   fuel_needed: number | null
+  fuel_count: number | null
   target_pro2: number | null
   target_gap: number | null
   inviter_count: number | null
@@ -79,6 +82,7 @@ export interface FleetStage {
   failed: number | null
   total: number | null
   error: string
+  detail: string
 }
 
 export interface FleetStatus {
@@ -114,46 +118,9 @@ export interface FleetRunReply {
   already_running: boolean
 }
 
-export interface FleetLocalRow {
-  email: string
-  name: string
-  groupId: string
-  groupName: string
-}
-
-export interface FleetRemoteRow {
-  email: string
-  name: string
-  groupName: string
-}
-
-export interface FleetRowDiff {
-  email: string
-  local: string
-  remote: string
-}
-
-export interface WorkspaceDiff {
-  local_accounts: number
-  remote_accounts: number
-  local_only: string[]
-  remote_only: string[]
-  name_diff: FleetRowDiff[]
-  group_diff: FleetRowDiff[]
-  same: number
-  ok: boolean
-}
-
 export interface FleetPullRequest {
   url?: string
   token?: string
-}
-
-export interface RemoteWorkspaceSnapshot {
-  groups: Array<{ id: string; name: string }>
-  accounts: string[]
-  imports: string[]
-  bots: Array<{ handle: string; name: string; groupId: string }>
 }
 
 /** Read a finite number, or null when the value is absent or not numeric. */
@@ -192,6 +159,7 @@ function parseInviters(raw: unknown): FleetInviter[] {
       friends_to_next_reward: asNumber(doc.friends_to_next_reward),
       code: asText(doc.code),
       rewards_earned: asNumber(doc.rewards_earned),
+      counted: asNumber(doc.counted),
       source: asText(doc.source)
     })
   }
@@ -254,6 +222,7 @@ export function parseFleetPlan(raw: unknown, status = 200): FleetPlan {
     available_count: asNumber(doc.available_count),
     inviters: parseInviters(doc.available_inviters),
     fuel_needed: asNumber(doc.fuel_needed),
+    fuel_count: asNumber(doc.fuel_count),
     target_pro2: asNumber(doc.target_pro2),
     target_gap: asNumber(doc.target_gap) ?? asNumber(doc.pro2_gap),
     inviter_count: asNumber(doc.inviter_count),
@@ -294,7 +263,8 @@ function parseStage(raw: unknown): FleetStage | null {
     success: asNumber(doc.success),
     failed: asNumber(doc.failed),
     total: asNumber(doc.total),
-    error: asText(doc.error)
+    error: asText(doc.error),
+    detail: asText(doc.detail)
   }
 }
 
@@ -340,6 +310,7 @@ export function parseFleetRunReply(raw: unknown, status = 200): FleetRunReply {
 }
 
 /** Build the query string for GET /api/fleet/plan. */
+
 export function fleetPlanQuery(request: FleetPlanRequest): string {
   const params = new URLSearchParams()
   params.set('target_pro2', String(Math.max(0, Math.trunc(request.target_pro2))))
@@ -360,113 +331,12 @@ export function defaultRegisterCount(targetPro2: number, fuelPerInviter: number)
   return target * fuel
 }
 
-/** Resolve the handle a bot is backed by, lower-cased. */
-export function handleOfBot(
-  bot: { activeAccountId?: string; accountIds?: string[] },
-  accounts: Record<string, { handle?: string; displayName?: string; platformId?: string }>
-): string {
-  const first = bot.activeAccountId || bot.accountIds?.[0] || ''
-  const account = accounts[first]
-  if (!account) return ''
-  if (account.platformId && account.platformId !== 'hark') return ''
-  return (account.handle || account.displayName || '').trim().toLowerCase()
-}
-
-/** Collect local Hark bots with their names and group names. */
-export function localWorkspaceRows(
-  bots: Array<{ name: string; groupId: string; activeAccountId?: string; accountIds?: string[] }>,
-  accounts: Record<string, { handle?: string; displayName?: string; platformId?: string }>,
-  groups: Array<{ id: string; name: string }>
-): FleetLocalRow[] {
-  const groupName = new Map<string, string>()
-  for (const group of groups) groupName.set(group.id, group.name)
-  const out: FleetLocalRow[] = []
-  const seen = new Set<string>()
-  for (const bot of bots) {
-    const email = handleOfBot(bot, accounts)
-    if (!email || seen.has(email)) continue
-    seen.add(email)
-    out.push({
-      email,
-      name: bot.name,
-      groupId: bot.groupId,
-      groupName: groupName.get(bot.groupId) ?? ''
-    })
-  }
-  return out
-}
-
-/** Collect remote workspace rows from a pulled VPS snapshot. */
-export function remoteWorkspaceRows(snapshot: RemoteWorkspaceSnapshot): FleetRemoteRow[] {
-  const groupName = new Map<string, string>()
-  for (const group of snapshot.groups) groupName.set(group.id, group.name)
-  const names = new Map<string, { name: string; groupName: string }>()
-  for (const bot of snapshot.bots) {
-    const email = bot.handle.trim().toLowerCase()
-    if (!email) continue
-    names.set(email, { name: bot.name, groupName: groupName.get(bot.groupId) ?? '' })
-  }
-  const handles = new Set<string>()
-  for (const handle of snapshot.accounts) handles.add(handle.trim().toLowerCase())
-  for (const handle of snapshot.imports) handles.add(handle.trim().toLowerCase())
-  const out: FleetRemoteRow[] = []
-  for (const email of handles) {
-    if (!email) continue
-    const known = names.get(email)
-    out.push({ email, name: known?.name ?? '', groupName: known?.groupName ?? '' })
-  }
-  return out
-}
-
-/** Compare local and remote workspaces by account set, bot name and group name. */
-export function diffWorkspace(local: FleetLocalRow[], remote: FleetRemoteRow[]): WorkspaceDiff {
-  const localMap = new Map<string, FleetLocalRow>()
-  for (const row of local) localMap.set(row.email, row)
-  const remoteMap = new Map<string, FleetRemoteRow>()
-  for (const row of remote) remoteMap.set(row.email, row)
-  const common = [...localMap.keys()].filter((email) => remoteMap.has(email)).sort()
-  const nameDiff: FleetRowDiff[] = []
-  const groupDiff: FleetRowDiff[] = []
-  for (const email of common) {
-    const left = localMap.get(email)!
-    const right = remoteMap.get(email)!
-    if (left.name !== right.name) {
-      nameDiff.push({ email, local: left.name, remote: right.name })
-    }
-    if (left.groupName !== right.groupName) {
-      groupDiff.push({ email, local: left.groupName, remote: right.groupName })
-    }
-  }
-  const localOnly = [...localMap.keys()].filter((email) => !remoteMap.has(email)).sort()
-  const remoteOnly = [...remoteMap.keys()].filter((email) => !localMap.has(email)).sort()
-  const same = common.length - countChanged(nameDiff, groupDiff)
-  return {
-    local_accounts: localMap.size,
-    remote_accounts: remoteMap.size,
-    local_only: localOnly,
-    remote_only: remoteOnly,
-    name_diff: nameDiff,
-    group_diff: groupDiff,
-    same,
-    ok: localOnly.length === 0 && remoteOnly.length === 0 && nameDiff.length === 0 && groupDiff.length === 0
-  }
-}
-
-function countChanged(nameDiff: FleetRowDiff[], groupDiff: FleetRowDiff[]): number {
-  return new Set([...nameDiff, ...groupDiff].map((row) => row.email)).size
-}
-
-/** Build the payload the VPS import endpoint expects from local rows. */
-export function toMirrorPayload(
-  rows: FleetLocalRow[],
-  groups: Array<{ id: string; name: string }>
-): {
-  groups: Array<{ id: string; name: string }>
-  bots: Array<{ email: string; name: string; groupId: string }>
-} {
-  const used = new Set(rows.map((row) => row.groupId).filter(Boolean))
-  return {
-    groups: groups.filter((group) => used.has(group.id)).map((group) => ({ id: group.id, name: group.name })),
-    bots: rows.map((row) => ({ email: row.email, name: row.name, groupId: row.groupId }))
-  }
-}
+export { snapshotAge, probeIsStale, firstFailedStage, stalledAtFirstStage } from './fleetFreshness'
+export type {
+  FleetLocalRow,
+  FleetRemoteRow,
+  FleetRowDiff,
+  WorkspaceDiff,
+  RemoteWorkspaceSnapshot
+} from './fleetDiff'
+export { diffWorkspace, localWorkspaceRows, remoteWorkspaceRows, toMirrorPayload, handleOfBot } from './fleetDiff'

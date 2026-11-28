@@ -6,6 +6,7 @@ import {
   CloudUpload,
   ListChecks,
   Play,
+  RefreshCw,
   Rocket
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -15,6 +16,10 @@ import {
   FLEET_DEFAULT_PREFIX,
   FLEET_DEFAULT_SHOW_RATE,
   FLEET_DEFAULT_TARGET_PRO2,
+  firstFailedStage,
+  probeIsStale,
+  snapshotAge,
+  stalledAtFirstStage,
   type FleetPlan,
   type FleetRunRequest,
   type FleetStage,
@@ -26,6 +31,7 @@ import {
   loadFleetStatus,
   localSnapshot,
   planHeadline,
+  registerFieldValue,
   startFleetJob,
   suggestRegisterCount,
   syncLocalToVps,
@@ -103,6 +109,7 @@ function Field(props: {
 /** One click: plan, run and watch the gateway Pro2 expansion job. */
 export function FleetExpansion() {
   const [config, setConfig] = useState<PanelConfig>(DEFAULT_CONFIG)
+  const [registerTouched, setRegisterTouched] = useState(false)
   const [plan, setPlan] = useState<FleetPlan | null>(null)
   const [status, setStatus] = useState<FleetStatus | null>(null)
   const [diff, setDiff] = useState<LocalRemoteDiff | null>(null)
@@ -121,23 +128,28 @@ export function FleetExpansion() {
 
   const patch = (next: Partial<PanelConfig>): void => setConfig((current) => ({ ...current, ...next }))
 
-  const fetchPlan = async (): Promise<FleetPlan> => {
+  const fetchPlan = async (refresh = false): Promise<FleetPlan> => {
     const inviter = config.inviterCount.trim() === '' ? undefined : toInt(config.inviterCount, 0)
     const next = await loadFleetPlan({
       target_pro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
       inviter_count: inviter,
-      show_rate: config.showRate
+      show_rate: config.showRate,
+      refresh
     })
     setPlan(next)
     if (!next.ok) setError(next.error || '网关 plan 未返回 ok')
+    if (!registerTouched) {
+      setConfig((current) => ({ ...current, registerCount: registerFieldValue(next, Number(current.registerCount)) }))
+    }
     return next
   }
 
-  const runPlan = async (): Promise<void> => {
-    setBusy('plan')
+  const runPlan = async (refresh = false): Promise<void> => {
+    setBusy(refresh ? 'refresh' : 'plan')
     setError('')
     try {
-      await fetchPlan()
+      const next = await fetchPlan(refresh)
+      if (refresh && next.probe?.running) push('已触发后台重扫, 稍后再读计划可看到新读数')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -175,7 +187,7 @@ export function FleetExpansion() {
       const request: FleetRunRequest = {
         target_pro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
         inviter_count: config.inviterCount.trim() === '' ? undefined : toInt(config.inviterCount, 0),
-        register_count: config.registerCount.trim() === '' ? undefined : toInt(config.registerCount, 0),
+        register_count: registerTouched ? toInt(config.registerCount, 0) : undefined,
         fuel_per_inviter: config.fuelPerInviter,
         prefix: config.prefix.trim() || FLEET_DEFAULT_PREFIX,
         delay: config.delay,
@@ -270,8 +282,11 @@ export function FleetExpansion() {
         <Field
           label="新注册数量"
           value={config.registerCount}
-          hint="默认 = 目标 Pro2 x 燃料"
-          onChange={(next) => patch({ registerCount: next })}
+          hint={registerTouched ? '手填值' : '跟随计划'}
+          onChange={(next) => {
+            setRegisterTouched(true)
+            patch({ registerCount: next })
+          }}
         />
         <Field
           label="每人补被邀请人"
@@ -291,9 +306,13 @@ export function FleetExpansion() {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button variant="secondary" size="sm" disabled={busy !== ''} onClick={() => void runPlan()}>
+        <Button variant="secondary" size="sm" disabled={busy !== ''} onClick={() => void runPlan(false)}>
           <ListChecks className={'size-3.5' + (busy === 'plan' ? ' animate-spin' : '')} />
           读取计划
+        </Button>
+        <Button variant="secondary" size="sm" disabled={busy !== ''} onClick={() => void runPlan(true)}>
+          <RefreshCw className={'size-3.5' + (busy === 'refresh' ? ' animate-spin' : '')} />
+          {busy === 'refresh' ? '重扫中...' : '刷新盘点'}
         </Button>
         <Button variant="primary" size="sm" disabled={busy !== ''} onClick={() => void runJob(false)}>
           <Play className="size-3.5" />
@@ -326,23 +345,25 @@ export function FleetExpansion() {
             <span>候选邀请人 {plan.candidate_inviters ?? '-'}</span>
             <span>展示率 {plan.show_rate ?? '-'}</span>
             <span>目标缺口 {plan.target_gap ?? '-'}</span>
-            <span>燃料需求 {plan.fuel_needed ?? '-'}</span>
+            <span>被邀请人缺口 {plan.fuel_needed ?? '-'}</span>
+            <span>燃料号总数 {plan.fuel_count ?? '-'}</span>
             <span>注册数 {plan.register_count ?? '-'}</span>
             <span>预计 Pro2 {plan.expected_pro2 ?? '-'}</span>
           </div>
           {plan.quota && (
             <div className="mt-1 text-[10px] text-ink-muted">
-              额度来源 {plan.quota.source || '-'}, 采样 {plan.quota.age_s === null ? '-' : plan.quota.age_s + 's'} 前
+              额度来源 {plan.quota.source || '-'}, 采样于 {snapshotAge(plan.quota.age_s)}
             </div>
           )}
-          {plan.probe && (
-            <div className="text-[10px] text-ink-muted">
-              邀请人探测 {plan.probe.stale ? '已过期' : '新鲜'}, 采样{' '}
-              {plan.probe.age_s === null ? '-' : plan.probe.age_s + 's'} 前
-            </div>
-          )}
+          <div className={'text-[10px] ' + (probeIsStale(plan.probe) ? 'text-status-attention' : 'text-ink-muted')}>
+            邀请人快照 {snapshotAge(plan.probe?.age_s ?? null)}
+            {probeIsStale(plan.probe) ? ' (非实时读数, 需要最新请点刷新盘点)' : ' (实时)'}
+            {plan.probe?.running ? ', 后台正在重扫' : ''}
+          </div>
           {plan.register && plan.register.ok === false && plan.register.reason && (
-            <div className="mt-1 text-[10px] text-status-error">注册通道: {plan.register.reason}</div>
+            <div className="mt-1 text-[10px] text-status-error">
+              注册通道当前不可用, 非预演作业会停在第一段: {plan.register.reason}
+            </div>
           )}
         </div>
       )}
@@ -353,13 +374,23 @@ export function FleetExpansion() {
             作业 {status.job_id || '-'} / 当前阶段 {status.stage || '-'} /{' '}
             {status.running ? '运行中' : '已结束'}
           </div>
+          {stalledAtFirstStage(status.stages) && (
+            <div className="mb-1 text-[10px] text-status-error">
+              作业停在第一段 {status.stages[0]?.name}, 后面各段都没有执行
+            </div>
+          )}
           <ul className="flex flex-col gap-1">
-            {status.stages.map((stage) => (
-              <li key={stage.name} className="flex flex-wrap items-center gap-2 text-[11px]">
+            {status.stages.map((stage, index) => (
+              <li key={stage.name} className="flex flex-wrap items-baseline gap-2 text-[11px]">
                 <span className={'font-medium ' + stageTone(stage.status)}>{stage.name}</span>
                 <span className="text-ink-muted">{stage.status}</span>
                 <span className="text-ink-muted">{stageCounts(stage)}</span>
-                {stage.error && <span className="text-status-error">{stage.error}</span>}
+                {index === firstFailedStage(status.stages) && stage.error && (
+                  <span className="basis-full text-status-error">{stage.error}</span>
+                )}
+                {!stage.error && stage.detail && (
+                  <span className="basis-full text-ink-muted">{stage.detail}</span>
+                )}
               </li>
             ))}
           </ul>

@@ -132,7 +132,7 @@ function remoteGroupIds(local: MirrorGroup[], remote: MirrorGroup[]): Map<string
 async function poolTokens(): Promise<Map<string, string>> {
   const reply = await call(GATEWAY_BASE, '/api/accounts/export?with_token=1', { method: 'GET' })
   if (reply.status !== HTTP_OK) {
-    throw new Error(`Hark 网关导出返回 ${reply.status}，先确认 8920 在运行`)
+    throw new Error(`Hark 网关导出返回 ${reply.status}, 先确认 8920 在运行`)
   }
   const rows = ((reply.body as { accounts?: unknown })?.accounts ?? []) as Array<{
     email?: unknown

@@ -102,11 +102,19 @@ export function suggestRegisterCount(targetPro2: number, fuelPerInviter: number)
   return defaultRegisterCount(targetPro2, fuelPerInviter)
 }
 
+/** Input value for the register field: the plan number when known, else the fuel rule. */
+export function registerFieldValue(plan: FleetPlan | null, fallback: number): string {
+  if (plan?.register_count !== null && plan?.register_count !== undefined) {
+    return String(plan.register_count)
+  }
+  return String(fallback)
+}
+
 /** Compact one-line summary for the plan block. */
 export function planHeadline(plan: FleetPlan): string {
   const parts: string[] = []
   if (plan.register_count !== null) parts.push('注册 ' + plan.register_count)
-  if (plan.fuel_needed !== null) parts.push('燃料 ' + plan.fuel_needed)
+  if (plan.fuel_count !== null) parts.push('燃料号 ' + plan.fuel_count)
   if (plan.expected_pro2 !== null) parts.push('预计 Pro2 ' + plan.expected_pro2)
   if (plan.inviter_gap !== null) parts.push('邀请人缺口 ' + plan.inviter_gap)
   return parts.join(' / ')

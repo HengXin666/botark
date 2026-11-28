@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import {
+  STALE_AFTER_S,
   defaultRegisterCount,
   diffWorkspace,
+  firstFailedStage,
   fleetPlanQuery,
   localWorkspaceRows,
   parseFleetPlan,
   parseFleetRunReply,
   parseFleetStatus,
+  probeIsStale,
   remoteWorkspaceRows,
+  snapshotAge,
+  stalledAtFirstStage,
   toMirrorPayload
 } from './fleet'
 
@@ -53,9 +58,11 @@ describe('fleet plan parsing', () => {
         friends_to_next_reward: 2,
         code: 'C1',
         rewards_earned: 0,
+        counted: null,
         source: 'probe'
       }
     ])
+    expect(plan.fuel_count).toBeNull()
     expect(plan.register_count).toBe(84)
     expect(plan.quota?.age_s).toBe(12.3)
     expect(plan.probe?.stale).toBe(false)
@@ -119,7 +126,8 @@ describe('fleet status parsing', () => {
       success: 3,
       failed: 2,
       total: 5,
-      error: '429 raw'
+      error: '429 raw',
+      detail: ''
     })
     expect(status.stages[0]?.error).toBe('')
   })
@@ -245,5 +253,81 @@ describe('register count default', () => {
     expect(defaultRegisterCount(17, 3)).toBe(51)
     expect(defaultRegisterCount(-2, 3)).toBe(0)
     expect(defaultRegisterCount(17, -3)).toBe(0)
+  })
+})
+
+describe('freshness and failure display', () => {
+  it('reads fuel_count and counted separately from fuel_needed', () => {
+    const plan = parseFleetPlan(
+      {
+        ok: true,
+        fuel_needed: 17,
+        fuel_count: 35,
+        available_inviters: [
+          { email: 'a@one.com', friends_to_next_reward: 3, code: 'C', rewards_earned: 0, counted: 0 }
+        ]
+      },
+      200
+    )
+    expect(plan.fuel_needed).toBe(17)
+    expect(plan.fuel_count).toBe(35)
+    expect(plan.inviters[0]?.counted).toBe(0)
+  })
+
+  it('keeps the dry run stage detail text', () => {
+    const reply = parseFleetRunReply(
+      {
+        ok: true,
+        job_id: 'j9',
+        running: false,
+        dry_run: true,
+        stages: [
+          {
+            name: 'register',
+            status: 'ok',
+            success: 0,
+            failed: 0,
+            total: 20,
+            error: '',
+            detail: 'would register 20 accounts prefix=hkfz delay=25.0'
+          }
+        ]
+      },
+      200
+    )
+    expect(reply.stages[0]?.detail).toBe('would register 20 accounts prefix=hkfz delay=25.0')
+    expect(reply.running).toBe(false)
+    expect(reply.dry_run).toBe(true)
+  })
+
+  it('formats snapshot age in seconds, minutes, hours and days', () => {
+    expect(snapshotAge(null)).toBe('采样时间未知')
+    expect(snapshotAge(12)).toBe('12 秒前')
+    expect(snapshotAge(384.7)).toBe('6 分钟前')
+    expect(snapshotAge(7200)).toBe('2 小时前')
+    expect(snapshotAge(172800)).toBe('2 天前')
+  })
+
+  it('treats a long-interval snapshot as stale even when the flag is false', () => {
+    expect(probeIsStale(null)).toBe(true)
+    expect(probeIsStale({ sampled_at: 1, age_s: 10, stale: false, running: false })).toBe(false)
+    expect(probeIsStale({ sampled_at: 1, age_s: 10, stale: true, running: false })).toBe(true)
+    expect(probeIsStale({ sampled_at: 1, age_s: STALE_AFTER_S + 1, stale: false, running: false })).toBe(true)
+  })
+
+  it('flags a job that stopped at its first stage', () => {
+    const stalled = [
+      { name: 'register', stage: 'register', status: 'failed' as const, success: 0, failed: 1, total: 2, error: 'turnstile', detail: '' },
+      { name: 'upgrade', stage: 'upgrade', status: 'pending' as const, success: 0, failed: 0, total: 0, error: '', detail: '' }
+    ]
+    expect(firstFailedStage(stalled)).toBe(0)
+    expect(stalledAtFirstStage(stalled)).toBe(true)
+    const later = [
+      { name: 'register', stage: 'register', status: 'ok' as const, success: 2, failed: 0, total: 2, error: '', detail: '' },
+      { name: 'upgrade', stage: 'upgrade', status: 'failed' as const, success: 0, failed: 1, total: 1, error: 'boom', detail: '' }
+    ]
+    expect(firstFailedStage(later)).toBe(1)
+    expect(stalledAtFirstStage(later)).toBe(false)
+    expect(stalledAtFirstStage([])).toBe(false)
   })
 })
