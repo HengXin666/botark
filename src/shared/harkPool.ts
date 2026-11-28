@@ -32,9 +32,14 @@ export function harkTierForLimit(limit: number | undefined): HarkPoolTier {
   return 'unknown'
 }
 
-/** The two BotArk sections where imported Hark accounts live. */
-export function harkPoolGroupName(tier: HarkPoolTier): 'Pro2' | 'Pro1' {
-  return tier === 'pro2' ? 'Pro2' : 'Pro1'
+/**
+ * The BotArk section an imported Hark account belongs in. An unread or free
+ * tier account must not land in Pro1, because that group means the 8M tier.
+ */
+export function harkPoolGroupName(tier: HarkPoolTier): 'Pro2' | 'Pro1' | '无月额度' {
+  if (tier === 'pro2') return 'Pro2'
+  if (tier === 'pro') return 'Pro1'
+  return '无月额度'
 }
 
 /** Join the pool export with the live quota snapshot into import rows. */

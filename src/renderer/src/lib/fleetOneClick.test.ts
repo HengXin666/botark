@@ -48,6 +48,7 @@ const COUNTS = {
 }
 const MIRROR_OK = { accounts: 2, imported: 0, failed: 0, groups: 1, bots: 2, counts: COUNTS }
 const MIRROR_OLD = { accounts: 2, imported: 2, failed: 0, groups: 1, bots: 2, counts: null }
+const POOL_OK = { added: 2, moved: 0, kept: 0, placed_none: 0, existing: 0, refreshed: 2, failed: 0, skipped: 0 }
 const DIFF_OK = {
   local_accounts: 2,
   remote_accounts: 2,
@@ -82,6 +83,7 @@ function ports(overrides: Partial<OneClickPorts> = {}): OneClickPorts {
     loadPlan: async () => OK_PLAN,
     startJob: async () => ({ job_id: 'job-1', already_running: false, running: true }),
     pollStatus: async () => OK_STATUS,
+    importPool: async () => POOL_OK,
     syncToVps: async () => MIRROR_OK,
     compare: async () => DIFF_OK,
     sleep: async () => undefined,
@@ -287,6 +289,120 @@ describe('one-click expansion', () => {
     expect(result.line).toContain('属旧版镜像行为')
     expect(result.line).toContain('git pull --ff-only')
     expect(result.line).not.toContain('双端不一致')
+  })
+
+  it('imports the new accounts into the local workspace before syncing', async () => {
+    const order: string[] = []
+    const traces: string[] = []
+    const result = await runOneClick(
+      INPUT,
+      { ...handlers({ states: [] }), onTrace: (line) => traces.push(line) },
+      ports({
+        importPool: async () => {
+          order.push('import')
+          return POOL_OK
+        },
+        syncToVps: async () => {
+          order.push('sync')
+          return MIRROR_OK
+        },
+        compare: async () => {
+          order.push('compare')
+          return DIFF_OK
+        }
+      })
+    )
+    expect(order).toEqual(['import', 'sync', 'compare'])
+    expect(result.tone).toBe('ok')
+    expect(result.step).toBe('done')
+    const imported = traces.find((line) => line.includes('本地工作区导入')) ?? ''
+    expect(imported).toContain('新增 2')
+    expect(imported).toContain('重注入 2')
+    expect(imported).toContain('迁移 0')
+    expect(imported).toContain('保留 0')
+  })
+
+  it('keeps going after a failed local import but never claims a clean finish', async () => {
+    const order: string[] = []
+    const traces: string[] = []
+    const result = await runOneClick(
+      INPUT,
+      { ...handlers({ states: [] }), onTrace: (line) => traces.push(line) },
+      ports({
+        importPool: async () => {
+          order.push('import')
+          throw new Error('网关 accounts/export 502')
+        },
+        syncToVps: async () => {
+          order.push('sync')
+          return MIRROR_OK
+        },
+        compare: async () => {
+          order.push('compare')
+          return DIFF_OK
+        }
+      })
+    )
+    expect(order).toEqual(['import', 'sync', 'compare'])
+    expect(result.tone).toBe('failed')
+    expect(result.line).toContain('新号未能导入本地工作区')
+    expect(result.line).toContain('网关 accounts/export 502')
+    expect(result.line).not.toContain('已同步且双端一致')
+    expect(traces.some((line) => line.includes('本地工作区导入失败'))).toBe(true)
+  })
+
+  it('imports once even when the button is clicked twice', async () => {
+    let imports = 0
+    const slow = ports({
+      importPool: async () => {
+        imports += 1
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        return POOL_OK
+      }
+    })
+    const first = runOneClick(INPUT, handlers({ states: [] }), slow)
+    const second = runOneClick(INPUT, handlers({ states: [] }), slow)
+    const [a, b] = await Promise.all([first, second])
+    expect(imports).toBe(1)
+    expect(a).toBe(b)
+  })
+
+  it('skips the job but still writes both sides when the pool already meets the target', async () => {
+    const done = parseFleetPlan(
+      { ok: true, pro2_count: 17, target_pro2: 17, target_gap: 0, no_expansion: true },
+      200
+    )
+    const calls = { start: 0, sync: 0, compare: 0, import: 0 }
+    const traces: string[] = []
+    const result = await runOneClick(
+      INPUT,
+      { ...handlers({ states: [] }), onTrace: (line) => traces.push(line) },
+      ports({
+        loadPlan: async () => done,
+        startJob: async () => {
+          calls.start += 1
+          return { job_id: 'x', already_running: false, running: true }
+        },
+        importPool: async () => {
+          calls.import += 1
+          return POOL_OK
+        },
+        syncToVps: async () => {
+          calls.sync += 1
+          return MIRROR_OK
+        },
+        compare: async () => {
+          calls.compare += 1
+          return DIFF_OK
+        }
+      })
+    )
+    expect(calls).toEqual({ start: 0, sync: 1, compare: 1, import: 1 })
+    expect(result.tone).toBe('ok')
+    expect(result.step).toBe('done')
+    expect(result.line).toContain('号池已达标')
+    expect(result.line).toContain('本次未注册新号')
+    expect(traces.some((line) => line.includes('target_gap=0'))).toBe(true)
   })
 
   it('gives up waiting when the job never finishes', async () => {

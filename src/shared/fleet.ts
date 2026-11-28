@@ -73,6 +73,7 @@ export interface FleetPlan {
   fuel_count: number | null
   target_pro2: number | null
   target_gap: number | null
+  no_expansion: boolean
   inviter_count: number | null
   inviter_gap: number | null
   show_rate: number | null
@@ -281,6 +282,7 @@ export function parseFleetPlan(raw: unknown, status = 200): FleetPlan {
     fuel_count: asNumber(doc.fuel_count),
     target_pro2: asNumber(doc.target_pro2),
     target_gap: asNumber(doc.target_gap) ?? asNumber(doc.pro2_gap),
+    no_expansion: asBool(doc.no_expansion),
     inviter_count: asNumber(doc.inviter_count),
     inviter_gap: asNumber(doc.inviter_gap),
     show_rate: asNumber(doc.show_rate),

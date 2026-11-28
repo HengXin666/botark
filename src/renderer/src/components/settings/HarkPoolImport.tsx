@@ -15,8 +15,9 @@ export function HarkPoolImport() {
     try {
       const result = await syncHarkPool((text) => setDone(text))
       const kept = result.kept > 0 ? `, 因在人工组保留 ${result.kept}` : ''
+      const none = result.placed_none > 0 ? `, 无月额度 ${result.placed_none}` : ''
       setDone(
-        `同步完成: 新增 ${result.added}, 重注入 ${result.refreshed}, 迁移 ${result.moved}${kept}, 已存在 ${result.existing}, 失败 ${result.failed}`
+        `同步完成: 新增 ${result.added}, 重注入 ${result.refreshed}, 迁移 ${result.moved}${kept}${none}, 已存在 ${result.existing}, 失败 ${result.failed}`
       )
     } catch (cause) {
       setDone('')

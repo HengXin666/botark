@@ -13,6 +13,7 @@ import {
   type LocalRemoteDiff,
   type MirrorOutcome
 } from '@/lib/fleetPanel'
+import { syncHarkPool, type HarkPoolSyncResult } from '@/lib/harkPoolSync'
 import {
   firstFailedStage,
   type FleetPlan,
@@ -25,7 +26,7 @@ import {
 export const OLD_MIRROR_LINE =
   'VPS 镜像为旧版, 名称与分组无法物化 (账号已导入). 需在宿主执行: git pull --ff-only && docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build'
 
-export type OneClickStep = 'plan' | 'expand' | 'verify' | 'sync' | 'done'
+export type OneClickStep = 'plan' | 'expand' | 'import' | 'sync' | 'verify' | 'done'
 
 export type OneClickTone = 'busy' | 'ok' | 'failed'
 
@@ -39,6 +40,7 @@ export interface OneClickPorts {
   loadPlan: (request: FleetPlanRequest) => Promise<FleetPlan>
   startJob: (request: FleetRunRequest) => Promise<{ job_id: string; already_running: boolean; running: boolean }>
   pollStatus: () => Promise<FleetStatus>
+  importPool: (onProgress?: (line: string) => void) => Promise<HarkPoolSyncResult>
   syncToVps: (onProgress?: (line: string) => void) => Promise<MirrorOutcome>
   compare: () => Promise<LocalRemoteDiff>
   sleep: (ms: number) => Promise<void>
@@ -65,6 +67,7 @@ export const LIVE_PORTS: OneClickPorts = {
   loadPlan: loadFleetPlan,
   startJob: startFleetJob,
   pollStatus: loadFleetStatus,
+  importPool: syncHarkPool,
   syncToVps: syncLocalToVps,
   compare: compareWithVps,
   sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
@@ -124,6 +127,11 @@ async function execute(input: OneClickInput, ports: OneClickPorts, handlers: One
       return emit(state('plan', 'failed', '计划读取失败, 未发起作业: ' + (plan.error || '网关未返回原因')))
     }
 
+    if (plan.no_expansion) {
+      handlers.onTrace('plan: target_gap=0, 跳过注册作业, 直接写入两端')
+      return await finish(ports, handlers, emit, plan)
+    }
+
     const channel = registerChannelView(plan.register)
     if (channel.tone === 'failure') {
       handlers.onTrace('注册通道不可用: ' + channel.text)
@@ -136,7 +144,7 @@ async function execute(input: OneClickInput, ports: OneClickPorts, handlers: One
     handlers.onTrace(reply.already_running ? '已有作业在跑, 直接接上: ' + jobId : '作业已发起: ' + jobId)
 
     emit(state('expand', 'busy', '扩容作业进行中, 等待注册与邀请升级...'))
-    return await waitForJob(input, ports, handlers, jobId, emit)
+    return await waitForJob(input, ports, handlers, jobId, emit, plan)
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause)
     handlers.onTrace('一键流程异常: ' + message)
@@ -149,7 +157,8 @@ async function waitForJob(
   ports: OneClickPorts,
   handlers: OneClickHandlers,
   jobId: string,
-  emit: (next: OneClickState) => OneClickState
+  emit: (next: OneClickState) => OneClickState,
+  plan: FleetPlan
 ): Promise<OneClickState> {
   const started = ports.now()
   let status = await ports.pollStatus()
@@ -171,15 +180,39 @@ async function waitForJob(
     return emit(state('expand', 'failed', line + ', 已停止, 没有同步不完整的池'))
   }
 
-  return await finish(ports, handlers, emit)
+  return await finish(ports, handlers, emit, plan)
+}
+
+/** Trace text for one local pool import, so the person sees what the step did. */
+function importTrace(result: HarkPoolSyncResult): string {
+  const parts = [
+    '新增 ' + result.added,
+    '重注入 ' + result.refreshed,
+    '迁移 ' + result.moved,
+    '保留 ' + result.kept,
+    '已存在 ' + result.existing
+  ]
+  if (result.failed > 0) parts.push('失败 ' + result.failed)
+  return '本地工作区导入: ' + parts.join(', ')
 }
 
 async function finish(
   ports: OneClickPorts,
   handlers: OneClickHandlers,
-  emit: (next: OneClickState) => OneClickState
+  emit: (next: OneClickState) => OneClickState,
+  plan: FleetPlan
 ): Promise<OneClickState> {
   try {
+    emit(state('import', 'busy', '扩容完成, 正在把新号同步进本地工作区...'))
+    let localFailure = ''
+    try {
+      const imported = await ports.importPool((line) => handlers.onTrace(line))
+      handlers.onTrace(importTrace(imported))
+    } catch (cause) {
+      localFailure = cause instanceof Error ? cause.message : String(cause)
+      handlers.onTrace('本地工作区导入失败, 继续同步 VPS: ' + localFailure)
+    }
+
     emit(state('sync', 'busy', '扩容完成, 正在同步到 VPS...'))
     const synced = await ports.syncToVps((line) => handlers.onTrace(line))
     const old = mirrorIsOld(synced.counts)
@@ -201,7 +234,29 @@ async function finish(
       if (diff.group_diff.length > 0) parts.push('分组差异 ' + diff.group_diff.length)
       return emit(state('verify', 'failed', '双端不一致: ' + parts.join(', ')))
     }
+    if (localFailure) {
+      return emit(
+        state(
+          'done',
+          'failed',
+          '扩容与 VPS 同步已完成, 但新号未能导入本地工作区: ' + localFailure + ', 可点同步 Hark 号池重试'
+        )
+      )
+    }
     handlers.onTrace('双端一致, 一键流程完成')
+    if (plan.no_expansion) {
+      return emit(
+        state(
+          'done',
+          'ok',
+          '号池已达标 (Pro2 ' +
+            (plan.pro2_count ?? '?') +
+            '/目标 ' +
+            (plan.target_pro2 ?? '?') +
+            '), 已把账号与分组同步到两端, 双端一致, 本次未注册新号'
+        )
+      )
+    }
     return emit(state('done', 'ok', '扩容已完成, 账号与分组已同步且双端一致'))
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause)

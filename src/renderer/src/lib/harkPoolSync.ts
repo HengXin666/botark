@@ -11,6 +11,7 @@ export interface HarkPoolSyncResult {
   added: number
   moved: number
   kept: number
+  placed_none: number
   existing: number
   refreshed: number
   failed: number
@@ -75,8 +76,7 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
   const parsed = parseHarkPoolAccounts(await exportRes.json(), await quotaRes.json())
   if (parsed.accounts.length === 0) throw new Error('号池为空或没有可导入的会话')
 
-  const pro2 = groupIdFor('Pro2')
-  const pro1 = groupIdFor('Pro1')
+  const groupIds = new Map<string, string>()
   const liveLimits = new Map<string, number>()
   const existingHark = Object.values(useBotStore.getState().accounts).filter(
     (item) => item.platformId === 'hark'
@@ -88,6 +88,7 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
   let added = 0
   let moved = 0
   let kept = 0
+  let placedNone = 0
   let existing = 0
   let refreshed = 0
   let failed = 0
@@ -98,7 +99,13 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
     const known = findHarkAccountId(useBotStore.getState().accounts, account.email)
     const liveLimit = known ? liveLimits.get(known) : undefined
     const tier = liveLimit !== undefined ? harkTierForLimit(liveLimit) : account.tier
-    const groupId = harkPoolGroupName(tier) === 'Pro2' ? pro2 : pro1
+    const groupName = harkPoolGroupName(tier)
+    let groupId = groupIds.get(groupName)
+    if (!groupId) {
+      groupId = groupIdFor(groupName)
+      groupIds.set(groupName, groupId)
+    }
+    if (tier === 'unknown') placedNone += 1
     if (known) {
       // Re-inject the session in place: this only rewrites the account's cookie
       // partition, so a running window keeps its bot and picks up a fresh token
@@ -108,7 +115,7 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
       else failed += 1
       const state = useBotStore.getState()
       const bot = state.bots.find((item) => item.accountIds.includes(known))
-      if (bot && tier !== 'unknown' && bot.groupId !== groupId) {
+      if (bot && bot.groupId !== groupId) {
         const current = state.groups.find((group) => group.id === bot.groupId)
         if (current && managedGroup(current.name)) {
           state.moveBotToGroup(bot.id, groupId)
@@ -145,5 +152,5 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
     added += 1
   }
 
-  return { added, moved, kept, existing, refreshed, failed, skipped: parsed.skipped }
+  return { added, moved, kept, placed_none: placedNone, existing, refreshed, failed, skipped: parsed.skipped }
 }

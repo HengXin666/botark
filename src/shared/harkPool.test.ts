@@ -9,7 +9,14 @@ describe('harkPool', () => {
     expect(harkTierForLimit(undefined)).toBe('unknown')
     expect(harkPoolGroupName('pro2')).toBe('Pro2')
     expect(harkPoolGroupName('pro')).toBe('Pro1')
-    expect(harkPoolGroupName('unknown')).toBe('Pro1')
+    expect(harkPoolGroupName('unknown')).toBe('无月额度')
+  })
+
+  it('never sends an unread tier into the 8M group', () => {
+    for (const tier of ['unknown'] as const) {
+      expect(harkPoolGroupName(tier)).not.toBe('Pro1')
+      expect(harkPoolGroupName(tier)).not.toBe('Pro2')
+    }
   })
 
   it('joins export tokens with the live quota snapshot', () => {

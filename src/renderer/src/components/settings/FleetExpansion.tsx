@@ -44,6 +44,7 @@ const LIST_LIMIT = 8
 const ONECLICK_STEP_LABEL: Record<string, string> = {
   plan: '读计划',
   expand: '扩容',
+  import: '导入本地',
   sync: '同步 VPS',
   verify: '校验',
   done: '完成'

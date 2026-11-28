@@ -168,6 +168,53 @@ describe('syncHarkPool keeps hand made groups', () => {
     }))
   }
 
+  it('places a 16M account in Pro2, an 8M account in Pro1 and a free account in 无月额度', async () => {
+    importMock.mockReset()
+    rpcMock.mockReset()
+    importMock.mockResolvedValue({ signedIn: true })
+    rpcMock.mockResolvedValue({ ok: false, status: 0, message: 'no live quota' })
+    useBotStore.setState({
+      groups: [
+        { id: 'grp_pro2', name: 'Pro2' },
+        { id: 'grp_pro1', name: 'Pro1' }
+      ],
+      bots: [],
+      accounts: {},
+      messages: {},
+      selectedBotId: null,
+      connectAccount: async () => undefined
+    })
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/api/accounts/export')) {
+        return jsonResponse({
+          accounts: [
+            { email: 'full@example.com', session_token: 't1' },
+            { email: 'half@example.com', session_token: 't2' },
+            { email: 'free@example.com', session_token: 't3' }
+          ]
+        })
+      }
+      return jsonResponse({
+        accounts: [
+          { email: 'full@example.com', limit: 16_000_000 },
+          { email: 'half@example.com', limit: 8_000_000 },
+          { email: 'free@example.com', limit: 75_000 }
+        ]
+      })
+    }))
+    const result = await syncHarkPool()
+    expect(result.added).toBe(3)
+    expect(result.placed_none).toBe(1)
+    const state = useBotStore.getState()
+    const groupOf = new Map(state.bots.map((bot) => [bot.name, bot.groupId]))
+    expect(groupOf.get('Hark full')).toBe('grp_pro2')
+    expect(groupOf.get('Hark half')).toBe('grp_pro1')
+    const none = state.groups.find((group) => group.name === '无月额度')
+    expect(none).toBeDefined()
+    expect(groupOf.get('Hark free')).toBe(none?.id)
+    expect(state.groups.find((group) => group.name === 'Pro1')?.id).not.toBe(groupOf.get('Hark free'))
+  })
+
   it('moves a bot out of Workspace by its measured tier', async () => {
     seed('grp_work')
     const result = await syncHarkPool()
@@ -186,6 +233,39 @@ describe('syncHarkPool keeps hand made groups', () => {
 
   it('leaves a bot in a hand made group and counts it as kept', async () => {
     seed('grp_cron')
+    const result = await syncHarkPool()
+    expect(result.moved).toBe(0)
+    expect(result.kept).toBe(1)
+    expect(useBotStore.getState().bots[0]?.groupId).toBe('grp_cron')
+  })
+
+  it('leaves a free tier bot in a hand made group untouched', async () => {
+    importMock.mockReset()
+    rpcMock.mockReset()
+    importMock.mockResolvedValue({ signedIn: true })
+    rpcMock.mockResolvedValue({ ok: true, data: { meters: { harkTokens: { dailyLimit: 75_000 } } } })
+    useBotStore.setState({
+      groups: GROUPS,
+      bots: [botIn('grp_cron')],
+      accounts: {
+        acc_1: {
+          id: 'acc_1',
+          platformId: 'hark',
+          displayName: 'acct@example.com',
+          handle: 'acct@example.com',
+          status: 'online'
+        }
+      },
+      messages: { bot_1: [] },
+      selectedBotId: 'bot_1',
+      connectAccount: async () => undefined
+    })
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/api/accounts/export')) {
+        return jsonResponse({ accounts: [{ email: 'acct@example.com', session_token: 't1' }] })
+      }
+      return jsonResponse({ accounts: [{ email: 'acct@example.com', limit: 75_000 }] })
+    }))
     const result = await syncHarkPool()
     expect(result.moved).toBe(0)
     expect(result.kept).toBe(1)
