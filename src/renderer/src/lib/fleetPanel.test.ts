@@ -4,6 +4,7 @@ import {
   clampAdd,
   clampDelay,
   expansionSummary,
+  targetAfterAdd,
   planHeadline,
   mirrorIsOld,
   registerChannelView,
@@ -30,8 +31,14 @@ describe('two field run payload', () => {
   })
 
   it('spells out target and inviter when the gateway ignores add', () => {
-    const request = buildRunRequest({ add: 3, delay: 40, plan: derived({}), planAddAware: false, dryRun: false })
-    expect(request.target_pro2).toBe(21)
+    const request = buildRunRequest({
+      add: 3,
+      delay: 40,
+      plan: derived({ pro2_count: 16, derived_target_pro2: undefined }),
+      planAddAware: false,
+      dryRun: false
+    })
+    expect(request.target_pro2).toBe(19)
     expect(request.inviter_count).toBe(5)
     expect(request.delay).toBe(40)
   })
@@ -41,10 +48,10 @@ describe('two field run payload', () => {
     expect(Object.keys(request).sort()).toEqual(['add', 'delay', 'dry_run'])
   })
 
-  it('falls back on the plain target when the plan has no derived one', () => {
+  it('falls back on the pool count when the plan has no derived one', () => {
     const plain = parseFleetPlan({ ok: true, pro2_count: 16, target_pro2: 17, inviter_have: 2 }, 200)
     const request = buildRunRequest({ add: 2, delay: 25, plan: plain, planAddAware: false, dryRun: false })
-    expect(request.target_pro2).toBe(19)
+    expect(request.target_pro2).toBe(18)
     expect(request.inviter_count).toBe(4)
   })
 
@@ -58,10 +65,32 @@ describe('two field run payload', () => {
   })
 })
 
+describe('target after add', () => {
+  it('adds the delta to the current pool count, not the echoed default target', () => {
+    const pooled = parseFleetPlan({ ok: true, pro2_count: 22, target_pro2: 17, inviter_have: 2 }, 200)
+    expect(targetAfterAdd(pooled, 3)).toBe(25)
+    const request = buildRunRequest({ add: 3, delay: 25, plan: pooled, planAddAware: false, dryRun: false })
+    expect(request.target_pro2).toBe(25)
+  })
+
+  it('uses the derived target as is, because it already carries the delta', () => {
+    const answered = parseFleetPlan({ ok: true, pro2_count: 17, derived_target_pro2: 20, inviter_have: 2 }, 200)
+    expect(targetAfterAdd(answered, 3)).toBe(20)
+    expect(expansionSummary(answered, 3)).toContain('目标 20')
+    expect(expansionSummary(answered, 3)).not.toContain('目标 23')
+  })
+
+  it('survives a missing plan', () => {
+    expect(targetAfterAdd(null, 3)).toBe(3)
+    expect(() => expansionSummary(null, 3)).not.toThrow()
+    expect(() => buildRunRequest({ add: 3, delay: 25, plan: null, planAddAware: false, dryRun: false })).not.toThrow()
+  })
+})
+
 describe('expansion summary line', () => {
   it('says where Pro2 stands and how many accounts would be registered', () => {
-    const line = expansionSummary(derived({}), 2)
-    expect(line).toContain('当前 Pro2 16 -> 目标 20')
+    const line = expansionSummary(derived({ derived_target_pro2: undefined }), 2)
+    expect(line).toContain('当前 Pro2 16 -> 目标 18')
     expect(line).toContain('本次将注册 35 个号')
   })
 

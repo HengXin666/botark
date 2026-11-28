@@ -33,6 +33,7 @@ import {
   localSnapshot,
   startFleetJob,
   syncLocalToVps,
+  targetAfterAdd,
   type LocalRemoteDiff
 } from '@/lib/fleetPanel'
 import { oneClickBusy, runOneClick, type OneClickState } from '@/lib/fleetOneClick'
@@ -51,8 +52,7 @@ function planReadsAdd(plan: FleetPlan): boolean {
  * count are spelled out so the add value still moves the pool forward.
  */
 function planRequestFrom(plan: FleetPlan | null, add: number, refresh = false): FleetPlanRequest {
-  const target = (plan?.target_pro2 ?? 0) + add
-  const request: FleetPlanRequest = { target_pro2: Math.max(1, Math.trunc(target)) }
+  const request: FleetPlanRequest = { target_pro2: targetAfterAdd(plan, add) }
   const have = plan?.inviter_have
   if (have !== null && have !== undefined) request.inviter_count = Math.max(1, Math.trunc(have + add))
   if (refresh) request.refresh = true

@@ -149,11 +149,22 @@ export function buildRunRequest(input: RunRequestInput): FleetRunRequest {
     return request
   }
   const plan = input.plan
-  const target = (plan?.derived_target_pro2 ?? plan?.target_pro2 ?? 0) + add
-  request.target_pro2 = Math.max(1, Math.trunc(target))
+  request.target_pro2 = targetAfterAdd(plan, add)
   const have = plan?.inviter_have
   if (have !== null && have !== undefined) request.inviter_count = Math.max(1, Math.trunc(have + add))
   return request
+}
+
+/**
+ * Target Pro2 count after adding this many accounts. A plan that already
+ * answered the add field reports the target it derived, so adding again would
+ * count the same accounts twice. Otherwise the target is the current pool count
+ * plus the delta, never the echoed default target.
+ */
+export function targetAfterAdd(plan: FleetPlan | null, add: number): number {
+  const base = plan?.pro2_count ?? 0
+  if (typeof plan?.derived_target_pro2 === 'number') return plan.derived_target_pro2
+  return Math.max(1, Math.trunc(base + add))
 }
 
 /** Keep the add value inside the range the gateway accepts. */
@@ -177,7 +188,7 @@ export function clampDelay(value: number): number {
 export function expansionSummary(plan: FleetPlan | null, add: number): string {
   if (!plan) return '还没读到网关计划, 点一次就能看到本次会注册几个号'
   const now = plan.pro2_count ?? 0
-  const target = (plan.derived_target_pro2 ?? plan.target_pro2 ?? 0) + add
+  const target = targetAfterAdd(plan, add)
   const register = plan.register_count
   const head = '当前 Pro2 ' + now + ' -> 目标 ' + target
   if (register === null || register === undefined) return head
