@@ -897,6 +897,12 @@ export const HARK_CHANNELS = {
   importCredentials: 'bothub:hark:import-credentials',
   remoteImport: 'bothub:hark:remote-import',
   remoteList: 'bothub:hark:remote-list',
+  mirrorWorkspace: 'bothub:hark:mirror-workspace',
+  mirrorSettings: 'bothub:hark:mirror-settings',
+  mirrorPull: 'bothub:hark:mirror-pull',
+  fleetPlan: 'bothub:hark:fleet-plan',
+  fleetRun: 'bothub:hark:fleet-run',
+  fleetStatus: 'bothub:hark:fleet-status',
   clearAuth: 'bothub:hark:clear-auth',
   rpc: 'bothub:hark:rpc',
   event: 'bothub:hark:event'
@@ -984,6 +990,32 @@ export interface HarkRemoteImportRecord {
   email: string
   displayName: string
   importedAt: number
+}
+
+export interface HarkMirrorGroup {
+  id: string
+  name: string
+}
+
+export interface HarkMirrorBot {
+  email: string
+  name: string
+  groupId: string
+}
+
+export interface HarkMirrorRequest {
+  url: string
+  token: string
+  groups: HarkMirrorGroup[]
+  bots: HarkMirrorBot[]
+}
+
+export interface HarkMirrorResult {
+  accounts: number
+  imported: number
+  failed: number
+  groups: number
+  bots: number
 }
 
 export interface HarkAuthStatus {

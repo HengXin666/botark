@@ -33,6 +33,8 @@ import type {
   HarkImportCredentialsRequest,
   HarkRemoteImportRequest,
   HarkRemoteImportRecord,
+  HarkMirrorRequest,
+  HarkMirrorResult,
   HarkAuthStatus,
   HarkRpcRequest,
   HarkRpcResponse,
@@ -68,6 +70,15 @@ import type { ApiKeysBridge } from './apiKeys'
 import type { WorkspaceBridge } from './workspace'
 import type { WorkspaceMetadataBridge } from './workspaceMetadata'
 import type { PortalBridge } from './workspacePortal'
+import type {
+  FleetPlan,
+  FleetPlanRequest,
+  FleetPullRequest,
+  FleetRunReply,
+  FleetRunRequest,
+  FleetStatus,
+  RemoteWorkspaceSnapshot
+} from './fleet'
 
 /** Controls embedded platform web sessions (Electron WebContentsView). */
 export interface WebViewBridge {
@@ -209,6 +220,18 @@ export interface HarkBridge {
   /** Accounts pushed by a registration machine through the REST API. */
   remoteList(): Promise<HarkRemoteImportRecord[]>
   remoteImport(request: HarkRemoteImportRequest): Promise<HarkRemoteImportRecord>
+  /** Mirror local group names, bot names and assignments to a BotArk VPS. */
+  mirrorWorkspace(request: HarkMirrorRequest): Promise<HarkMirrorResult>
+  /** Pre-provisioned VPS target, so the panel needs no typing. */
+  mirrorSettings(): Promise<{ url: string; token: string }>
+  /** Read the remote workspace so the panel can diff accounts, names and groups. */
+  mirrorPull(request?: FleetPullRequest): Promise<RemoteWorkspaceSnapshot>
+  /** Read the gateway expansion plan. */
+  fleetPlan(request: FleetPlanRequest): Promise<FleetPlan>
+  /** Start one gateway expansion job. */
+  fleetRun(request: FleetRunRequest): Promise<FleetRunReply>
+  /** Read the progress of the latest gateway expansion job. */
+  fleetStatus(): Promise<FleetStatus>
   clearAuth(accountId: string): Promise<HarkAuthStatus>
   rpc(request: HarkRpcRequest): Promise<HarkRpcResponse>
   onEvent(listener: (event: HarkMainEvent) => void): () => void

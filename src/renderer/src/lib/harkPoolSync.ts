@@ -8,6 +8,7 @@ export interface HarkPoolSyncResult {
   added: number
   moved: number
   existing: number
+  refreshed: number
   failed: number
   skipped: number
 }
@@ -78,6 +79,7 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
   let added = 0
   let moved = 0
   let existing = 0
+  let refreshed = 0
   let failed = 0
 
   for (let index = 0; index < parsed.accounts.length; index += 1) {
@@ -88,6 +90,12 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
     const tier = liveLimit !== undefined ? harkTierForLimit(liveLimit) : account.tier
     const groupId = harkPoolGroupName(tier) === 'Pro2' ? pro2 : pro1
     if (known) {
+      // Re-inject the session in place: this only rewrites the account's cookie
+      // partition, so a running window keeps its bot and picks up a fresh token
+      // without an application restart.
+      const rewrote = await hark.importCredentials({ accountId: known, rawInput: account.sessionToken })
+      if (rewrote.signedIn) refreshed += 1
+      else failed += 1
       const bot = useBotStore.getState().bots.find((item) => item.accountIds.includes(known))
       if (bot && tier !== 'unknown' && bot.groupId !== groupId) {
         useBotStore.getState().moveBotToGroup(bot.id, groupId)
@@ -121,5 +129,5 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
     added += 1
   }
 
-  return { added, moved, existing, failed, skipped: parsed.skipped }
+  return { added, moved, existing, refreshed, failed, skipped: parsed.skipped }
 }

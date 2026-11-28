@@ -3,6 +3,7 @@ import {
   HARK_CHANNELS,
   type HarkAuthStatus,
   type HarkImportCredentialsRequest,
+  type HarkMirrorRequest,
   type HarkOpenLoginRequest,
   type HarkRemoteImportRequest,
   type HarkRemoteImportRecord,
@@ -38,6 +39,8 @@ import {
   type HarkUploadedAttachment
 } from './harkClient'
 import { cancelHarkLogin, onHarkLoginEvent, openHarkLoginWindow } from './harkLogin'
+import { defaultMirrorSettings, mirrorWorkspace } from './remoteMirror'
+import { registerHarkFleetIpc } from './fleetGateway'
 import { importRemoteHarkAccount, listRemoteHarkImports } from './remoteHarkStore'
 import { loadAccountProxyUrl } from '../muse/accountProxy'
 import { guessMediaMimeFromName } from '../mediaMime'
@@ -567,6 +570,17 @@ export function registerHarkIpc(): void {
   })
 
   ipcMain.handle(HARK_CHANNELS.remoteList, async () => listRemoteHarkImports())
+
+  ipcMain.handle(HARK_CHANNELS.mirrorSettings, async () => defaultMirrorSettings())
+
+  registerHarkFleetIpc()
+
+  ipcMain.handle(HARK_CHANNELS.mirrorWorkspace, async (_event, request: unknown) => {
+    if (typeof request !== 'object' || request === null) {
+      throw new TypeError('Invalid hark mirror request')
+    }
+    return mirrorWorkspace(request as HarkMirrorRequest)
+  })
 
   ipcMain.handle(HARK_CHANNELS.remoteImport, async (_event, request: unknown) => {
     if (typeof request !== 'object' || request === null) {

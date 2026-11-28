@@ -32,6 +32,8 @@ import { SecurityVaultCenter } from '@/components/info/SecurityVaultCard'
 import { PaneHeader } from '@/components/layout/PaneHeader'
 import { MuseBatchImport } from '@/components/add-bot/MuseBatchImport'
 import { HarkPoolImport } from '@/components/settings/HarkPoolImport'
+import { RemoteMirror } from '@/components/settings/RemoteMirror'
+import { FleetExpansion } from '@/components/settings/FleetExpansion'
 import { BotAvatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { Dialog } from '@/components/ui/Dialog'
@@ -1923,6 +1925,10 @@ export function SettingsView() {
                     )}
                   </div>
                 </div>
+
+                <RemoteMirror />
+
+                <FleetExpansion />
 
                 {/* Hark Cookie / Token Import Card */}
                 <div className="rounded-2xl border border-line bg-surface p-4 shadow-soft">

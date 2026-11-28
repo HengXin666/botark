@@ -15,7 +15,7 @@ export function HarkPoolImport() {
     try {
       const result = await syncHarkPool((text) => setDone(text))
       setDone(
-        `同步完成: 新增 ${result.added}, 迁移 ${result.moved}, 已存在 ${result.existing}, 失败 ${result.failed}`
+        `同步完成: 新增 ${result.added}, 重注入 ${result.refreshed}, 迁移 ${result.moved}, 已存在 ${result.existing}, 失败 ${result.failed}`
       )
     } catch (cause) {
       setDone('')
