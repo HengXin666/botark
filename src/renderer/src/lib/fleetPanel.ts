@@ -8,6 +8,7 @@ import {
   FLEET_DEFAULT_PREFIX,
   STALE_AFTER_S,
   defaultRegisterCount,
+  probeIsStale,
   snapshotAge,
   diffWorkspace,
   localWorkspaceRows,
@@ -147,6 +148,21 @@ export function nextRegisterText(plan: FleetPlan | null, touched: boolean, curre
   const planned = plan?.register_count
   if (planned === null || planned === undefined) return ''
   return String(planned)
+}
+
+/**
+ * Hint for the inviter count field. A stale probe snapshot reports more open
+ * slots than the pool really has, so the field says the number is old instead
+ * of letting it read as a live capacity.
+ */
+export function inviterFieldHint(plan: FleetPlan | null): string {
+  if (!plan) return '留空读网关盘点'
+  const probe = plan.probe
+  if (!probe) return '留空读网关盘点'
+  const age = snapshotAge(probe.age_s)
+  if (probe.running) return '快照 ' + age + ', 后台正在重扫'
+  if (probeIsStale(probe)) return '快照 ' + age + ', 已过期, 名额可能虚高'
+  return '快照 ' + age + ', 实时'
 }
 
 /** Split a comma separated domain list, dropping blanks and duplicates. */

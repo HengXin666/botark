@@ -3,6 +3,7 @@ import {
   buildRunRequest,
   nextRegisterText,
   planHeadline,
+  inviterFieldHint,
   mirrorIsOld,
   registerChannelView,
   registerFieldValue,
@@ -10,7 +11,7 @@ import {
   tierSourceNotice,
   unmaterializedBots
 } from './fleetPanel'
-import { parseFleetPlan, parseFleetRunReply } from '@shared/fleet'
+import { STALE_AFTER_S, parseFleetPlan, parseFleetRunReply } from '@shared/fleet'
 
 const plan = (registerCount: number | null) =>
   parseFleetPlan({ ok: true, target_pro2: 17, register_count: registerCount, fuel_count: 35 }, 200)
@@ -354,5 +355,34 @@ describe('old remote mirror', () => {
 
   it('never reports a negative shortfall', () => {
     expect(unmaterializedBots(diff(2, 5))).toBe(0)
+  })
+})
+
+describe('inviter field hint', () => {
+  const withProbe = (probe: unknown) => parseFleetPlan({ ok: true, probe }, 200)
+
+  it('keeps the plain prompt before a plan is read', () => {
+    expect(inviterFieldHint(null)).toBe('留空读网关盘点')
+  })
+
+  it('marks an expired snapshot as possibly overstating capacity', () => {
+    const hint = inviterFieldHint(withProbe({ age_s: STALE_AFTER_S + 60, stale: true }))
+    expect(hint).toContain('已过期')
+    expect(hint).toContain('名额可能虚高')
+  })
+
+  it('calls a fresh snapshot live', () => {
+    const hint = inviterFieldHint(withProbe({ age_s: 30, stale: false }))
+    expect(hint).toContain('实时')
+    expect(hint).not.toContain('虚高')
+  })
+
+  it('says a rescan is running', () => {
+    const hint = inviterFieldHint(withProbe({ age_s: 30, stale: false, running: true }))
+    expect(hint).toContain('后台正在重扫')
+  })
+
+  it('falls back to the prompt when the plan has no probe', () => {
+    expect(inviterFieldHint(parseFleetPlan({ ok: true }, 200))).toBe('留空读网关盘点')
   })
 })

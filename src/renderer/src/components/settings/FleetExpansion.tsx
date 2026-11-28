@@ -18,6 +18,7 @@ import {
   FLEET_DEFAULT_PREFIX,
   FLEET_DEFAULT_SHOW_RATE,
   FLEET_DEFAULT_TARGET_PRO2,
+  probeIsStale,
   type FleetPlan,
   type FleetStatus
 } from '@shared/fleet'
@@ -26,6 +27,7 @@ import {
   compareWithVps,
   loadFleetPlan,
   loadFleetStatus,
+  inviterFieldHint,
   localSnapshot,
   nextRegisterText,
   startFleetJob,
@@ -82,6 +84,7 @@ function Field(props: {
   onChange: (next: string) => void
   placeholder?: string
   hint?: string
+  tone?: 'muted' | 'warn'
 }) {
   return (
     <label className="flex min-w-0 flex-col gap-1">
@@ -94,7 +97,11 @@ function Field(props: {
         spellCheck={false}
         className="w-full rounded-lg border border-line bg-canvas px-2.5 py-1.5 font-mono text-[12px] text-ink"
       />
-      {props.hint ? <span className="text-[10px] text-ink-muted">{props.hint}</span> : null}
+      {props.hint ? (
+        <span className={'text-[10px] ' + (props.tone === 'warn' ? 'text-status-attention' : 'text-ink-muted')}>
+          {props.hint}
+        </span>
+      ) : null}
     </label>
   )
 }
@@ -330,6 +337,8 @@ export function FleetExpansion() {
           label="可用邀请人数"
           value={config.inviterCount}
           placeholder="留空读网关盘点"
+          hint={inviterFieldHint(plan)}
+          tone={probeIsStale(plan?.probe ?? null) ? 'warn' : 'muted'}
           onChange={(next) => patch({ inviterCount: next })}
         />
         <Field
