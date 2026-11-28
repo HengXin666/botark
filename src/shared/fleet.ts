@@ -20,6 +20,9 @@ export interface FleetQuotaInfo {
   source: string
   sampled_at: number | null
   age_s: number | null
+  stale_s: number | null
+  stale: boolean
+  refresh_route: string
 }
 
 export interface FleetTierSources {
@@ -83,6 +86,14 @@ export interface FleetPlan {
   error: string
 }
 
+export interface FleetStageTiers {
+  pro2: number | null
+  pro1: number | null
+  failed: number | null
+  unknown: number | null
+  available: boolean
+}
+
 export type FleetStageStatus = 'pending' | 'running' | 'ok' | 'failed' | 'skipped'
 
 export interface FleetStage {
@@ -94,6 +105,7 @@ export interface FleetStage {
   total: number | null
   error: string
   detail: string
+  tiers: FleetStageTiers | null
 }
 
 export interface FleetStatus {
@@ -183,7 +195,10 @@ function parseQuota(raw: unknown): FleetQuotaInfo | null {
   return {
     source: asText(doc.source),
     sampled_at: asNumber(doc.sampled_at),
-    age_s: asNumber(doc.age_s)
+    age_s: asNumber(doc.age_s),
+    stale_s: asNumber(doc.stale_s),
+    stale: asBool(doc.stale),
+    refresh_route: asText(doc.refresh_route)
   }
 }
 
@@ -291,6 +306,18 @@ function parseStageStatus(value: unknown): FleetStageStatus {
   return STAGE_STATUSES.includes(text as FleetStageStatus) ? (text as FleetStageStatus) : 'pending'
 }
 
+function parseStageTiers(raw: unknown): FleetStageTiers | null {
+  if (!raw || typeof raw !== 'object') return null
+  const doc = asRecord(raw)
+  return {
+    pro2: asNumber(doc.pro2),
+    pro1: asNumber(doc.pro1),
+    failed: asNumber(doc.failed),
+    unknown: asNumber(doc.unknown),
+    available: asBool(doc.available)
+  }
+}
+
 function parseStage(raw: unknown): FleetStage | null {
   const doc = asRecord(raw)
   const name = asText(doc.name) || asText(doc.stage)
@@ -303,7 +330,8 @@ function parseStage(raw: unknown): FleetStage | null {
     failed: asNumber(doc.failed),
     total: asNumber(doc.total),
     error: asText(doc.error),
-    detail: asText(doc.detail)
+    detail: asText(doc.detail),
+    tiers: parseStageTiers(doc.tiers)
   }
 }
 

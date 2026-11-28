@@ -127,7 +127,8 @@ describe('fleet status parsing', () => {
       failed: 2,
       total: 5,
       error: '429 raw',
-      detail: ''
+      detail: '',
+      tiers: null
     })
     expect(status.stages[0]?.error).toBe('')
   })
@@ -317,14 +318,14 @@ describe('freshness and failure display', () => {
 
   it('flags a job that stopped at its first stage', () => {
     const stalled = [
-      { name: 'register', stage: 'register', status: 'failed' as const, success: 0, failed: 1, total: 2, error: 'turnstile', detail: '' },
-      { name: 'upgrade', stage: 'upgrade', status: 'pending' as const, success: 0, failed: 0, total: 0, error: '', detail: '' }
+      { name: 'register', stage: 'register', status: 'failed' as const, success: 0, failed: 1, total: 2, error: 'turnstile', detail: '', tiers: null },
+      { name: 'upgrade', stage: 'upgrade', status: 'pending' as const, success: 0, failed: 0, total: 0, error: '', detail: '', tiers: null }
     ]
     expect(firstFailedStage(stalled)).toBe(0)
     expect(stalledAtFirstStage(stalled)).toBe(true)
     const later = [
-      { name: 'register', stage: 'register', status: 'ok' as const, success: 2, failed: 0, total: 2, error: '', detail: '' },
-      { name: 'upgrade', stage: 'upgrade', status: 'failed' as const, success: 0, failed: 1, total: 1, error: 'boom', detail: '' }
+      { name: 'register', stage: 'register', status: 'ok' as const, success: 2, failed: 0, total: 2, error: '', detail: '', tiers: null },
+      { name: 'upgrade', stage: 'upgrade', status: 'failed' as const, success: 0, failed: 1, total: 1, error: 'boom', detail: '', tiers: null }
     ]
     expect(firstFailedStage(later)).toBe(1)
     expect(stalledAtFirstStage(later)).toBe(false)
@@ -398,5 +399,61 @@ describe('tier sources', () => {
     expect(plan.target_gap).toBe(5)
     expect(plan.target_pro2).toBe(17)
     expect(plan.pro2_count).toBe(12)
+  })
+})
+
+describe('stage tiers', () => {
+  it('keeps the four counts and the availability flag', () => {
+    const status = parseFleetStatus({
+      ok: true,
+      running: false,
+      stages: [
+        {
+          name: 'register',
+          stage: 'register',
+          status: 'ok',
+          success: 2,
+          failed: 1,
+          total: 3,
+          error: '',
+          detail: '',
+          tiers: { pro2: 1, pro1: 1, failed: 1, unknown: 0, available: true }
+        }
+      ]
+    })
+    expect(status.stages[0].tiers).toEqual({ pro2: 1, pro1: 1, failed: 1, unknown: 0, available: true })
+  })
+
+  it('reports unavailable tiers instead of inventing zeros', () => {
+    const status = parseFleetStatus({
+      ok: true,
+      running: false,
+      stages: [
+        {
+          name: 'register',
+          stage: 'register',
+          status: 'ok',
+          success: 0,
+          failed: 0,
+          total: 0,
+          error: '',
+          detail: '',
+          tiers: { available: false }
+        }
+      ]
+    })
+    expect(status.stages[0].tiers?.available).toBe(false)
+    expect(status.stages[0].tiers?.pro2).toBeNull()
+  })
+
+  it('treats a stage without tiers as absent', () => {
+    const status = parseFleetStatus({
+      ok: true,
+      running: false,
+      stages: [
+        { name: 'register', stage: 'register', status: 'pending', success: 0, failed: 0, total: 0, error: '', detail: '' }
+      ]
+    })
+    expect(status.stages[0].tiers).toBeNull()
   })
 })

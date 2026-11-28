@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  AlertCircle,
-  CheckCircle2,
   CloudDownload,
   CloudUpload,
   ListChecks,
+  Loader2,
   Play,
   RefreshCw,
-  Rocket
+  Rocket,
+  Zap,
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import {
@@ -16,12 +18,7 @@ import {
   FLEET_DEFAULT_PREFIX,
   FLEET_DEFAULT_SHOW_RATE,
   FLEET_DEFAULT_TARGET_PRO2,
-  firstFailedStage,
-  probeIsStale,
-  snapshotAge,
-  stalledAtFirstStage,
   type FleetPlan,
-  type FleetStage,
   type FleetStatus
 } from '@shared/fleet'
 import {
@@ -31,17 +28,24 @@ import {
   loadFleetStatus,
   localSnapshot,
   nextRegisterText,
-  planHeadline,
-  registerChannelView,
-  tierSourceNotice,
   startFleetJob,
   suggestRegisterCount,
   syncLocalToVps,
   type LocalRemoteDiff
 } from '@/lib/fleetPanel'
+import { oneClickBusy, runOneClick, type OneClickState } from '@/lib/fleetOneClick'
+import { FleetDiffBlock, FleetPlanBlock, FleetStatusBlock } from '@/components/hark/FleetResultBlocks'
 
 const POLL_MS = 4000
+const ONE_CLICK_TIMEOUT_MS = 45 * 60 * 1000
 const LIST_LIMIT = 8
+const ONECLICK_STEP_LABEL: Record<string, string> = {
+  plan: '读计划',
+  expand: '扩容',
+  sync: '同步 VPS',
+  verify: '校验',
+  done: '完成'
+}
 
 interface PanelConfig {
   targetPro2: number
@@ -50,6 +54,7 @@ interface PanelConfig {
   fuelPerInviter: number
   prefix: string
   delay: number
+  domains: string
   showRate: number
   dryRun: boolean
 }
@@ -61,6 +66,7 @@ const DEFAULT_CONFIG: PanelConfig = {
   fuelPerInviter: FLEET_DEFAULT_FUEL_PER_INVITER,
   prefix: FLEET_DEFAULT_PREFIX,
   delay: FLEET_DEFAULT_DELAY,
+  domains: '',
   showRate: FLEET_DEFAULT_SHOW_RATE,
   dryRun: false
 }
@@ -68,21 +74,6 @@ const DEFAULT_CONFIG: PanelConfig = {
 function toInt(value: string, fallback: number): number {
   const parsed = Number.parseInt(value, 10)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
-}
-
-function stageTone(status: string): string {
-  if (status === 'ok') return 'text-status-online'
-  if (status === 'failed') return 'text-status-error'
-  if (status === 'running') return 'text-ink'
-  return 'text-ink-muted'
-}
-
-function stageCounts(stage: FleetStage): string {
-  const parts: string[] = []
-  if (stage.success !== null) parts.push('成功 ' + stage.success)
-  if (stage.failed !== null) parts.push('失败 ' + stage.failed)
-  if (stage.total !== null) parts.push('总数 ' + stage.total)
-  return parts.join(' / ')
 }
 
 function Field(props: {
@@ -118,6 +109,7 @@ export function FleetExpansion() {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [trace, setTrace] = useState<string[]>([])
+  const [oneClick, setOneClick] = useState<OneClickState | null>(null)
   const pollRef = useRef<number | null>(null)
 
   const push = (line: string): void => setTrace((rows) => [...rows.slice(-LIST_LIMIT * 3), line])
@@ -138,6 +130,48 @@ export function FleetExpansion() {
   }, [])
 
   const patch = (next: Partial<PanelConfig>): void => setConfig((current) => ({ ...current, ...next }))
+
+  const startOneClick = (): void => {
+    if (oneClickBusy()) return
+    setError('')
+    setTrace([])
+    setBusy('oneclick')
+    void runOneClick(
+      {
+        plan: {
+          target_pro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
+          inviter_count: config.inviterCount.trim() === '' ? undefined : toInt(config.inviterCount, 0),
+          show_rate: config.showRate
+        },
+        run: buildRunRequest({
+          targetPro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
+          inviterCount: config.inviterCount,
+          registerCount: config.registerCount,
+          registerTouched,
+          fuelPerInviter: config.fuelPerInviter,
+          prefix: config.prefix,
+          delay: config.delay,
+          domains: config.domains,
+          dryRun: false
+        }),
+        pollMs: POLL_MS,
+        jobTimeoutMs: ONE_CLICK_TIMEOUT_MS
+      },
+      {
+        onState: setOneClick,
+        onTrace: push,
+        onPlan: (next) => {
+          setPlan(next)
+          setConfig((current) => ({
+            ...current,
+            registerCount: nextRegisterText(next, registerTouched, current.registerCount)
+          }))
+        },
+        onStatus: setStatus,
+        onDiff: (next) => setDiff(next)
+      }
+    ).finally(() => setBusy(''))
+  }
 
   const fetchPlan = async (refresh = false): Promise<FleetPlan> => {
     const inviter = config.inviterCount.trim() === '' ? undefined : toInt(config.inviterCount, 0)
@@ -322,9 +356,45 @@ export function FleetExpansion() {
           value={String(config.delay)}
           onChange={(next) => patch({ delay: toInt(next, FLEET_DEFAULT_DELAY) })}
         />
+        <Field
+          label="注册邮箱域"
+          value={config.domains}
+          placeholder="空=网关自选"
+          hint="当前脚本只收第一个域"
+          onChange={(next) => patch({ domains: next })}
+        />
       </div>
 
+      {oneClick && (
+        <div
+          className={
+            'mt-3 flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[11px] ' +
+            (oneClick.tone === 'failed'
+              ? 'border-status-error/40 bg-status-error/5 text-status-error'
+              : oneClick.tone === 'ok'
+                ? 'border-status-online/40 bg-status-online/5 text-status-online'
+                : 'border-line bg-canvas text-ink')
+          }
+        >
+          {oneClick.tone === 'busy' && <Loader2 className="size-3.5 shrink-0 animate-spin" />}
+          {oneClick.tone === 'ok' && <CheckCircle2 className="size-3.5 shrink-0" />}
+          {oneClick.tone === 'failed' && <AlertCircle className="size-3.5 shrink-0" />}
+          <span className="min-w-0 flex-1">{oneClick.line}</span>
+          <span className="shrink-0 text-[10px] text-ink-muted">{ONECLICK_STEP_LABEL[oneClick.step]}</span>
+        </div>
+      )}
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button
+          variant="primary"
+          size="sm"
+          className="min-w-[168px]"
+          disabled={busy !== ''}
+          onClick={startOneClick}
+        >
+          {busy === 'oneclick' ? <Loader2 className="size-3.5 animate-spin" /> : <Zap className="size-3.5" />}
+          {busy === 'oneclick' ? '一键流程进行中...' : '一键完成扩容'}
+        </Button>
         <Button variant="secondary" size="sm" disabled={busy !== ''} onClick={() => void runPlan(false)}>
           <ListChecks className={'size-3.5' + (busy === 'plan' ? ' animate-spin' : '')} />
           读取计划
@@ -333,9 +403,9 @@ export function FleetExpansion() {
           <RefreshCw className={'size-3.5' + (busy === 'refresh' ? ' animate-spin' : '')} />
           {busy === 'refresh' ? '重扫中...' : '刷新盘点'}
         </Button>
-        <Button variant="primary" size="sm" disabled={busy !== ''} onClick={() => void runJob(false)}>
+        <Button variant="secondary" size="sm" disabled={busy !== ''} onClick={() => void runJob(false)}>
           <Play className="size-3.5" />
-          {busy === 'run' ? '提交中...' : '开始扩容'}
+          {busy === 'run' ? '提交中...' : '仅发起扩容'}
         </Button>
         <Button variant="secondary" size="sm" disabled={busy !== ''} onClick={() => void runJob(true)}>
           <Rocket className="size-3.5" />
@@ -351,115 +421,11 @@ export function FleetExpansion() {
         </Button>
       </div>
 
-      {plan && (
-        <div className="mt-3 rounded-lg border border-line bg-canvas p-2.5">
-          <div className="text-[11px] text-ink">{planHeadline(plan) || '计划暂无数字'}</div>
-          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] text-ink-muted sm:grid-cols-4">
-            <span>池账号 {plan.pool_accounts ?? '-'}</span>
-            <span>Pro2 {plan.pro2_count ?? '-'}</span>
-            <span>Pro1 {plan.pro1_count ?? '-'}</span>
-            <span>未测档 {plan.unknown ?? '-'}</span>
-            <span>可邀请人 {plan.available_count ?? '-'}</span>
-            <span>邀请人缺口 {plan.inviter_gap ?? '-'}</span>
-            <span>候选邀请人 {plan.candidate_inviters ?? '-'}</span>
-            <span>展示率 {plan.show_rate ?? '-'}</span>
-            <span>目标缺口 {plan.target_gap ?? '-'}</span>
-            <span>被邀请人缺口 {plan.fuel_needed ?? '-'}</span>
-            <span>燃料号总数 {plan.fuel_count ?? '-'}</span>
-            <span>注册数 {plan.register_count ?? '-'}</span>
-            <span>预计 Pro2 {plan.expected_pro2 ?? '-'}</span>
-          </div>
-          {plan.quota && (
-            <div className="mt-1 text-[10px] text-ink-muted">
-              额度来源 {plan.quota.source || '-'}, 采样于 {snapshotAge(plan.quota.age_s)}
-            </div>
-          )}
-          {tierSourceNotice(plan) !== null && (
-            <div className="text-[10px] text-status-attention">{tierSourceNotice(plan)}</div>
-          )}
-          <div className={'text-[10px] ' + (probeIsStale(plan.probe) ? 'text-status-attention' : 'text-ink-muted')}>
-            邀请人快照 {snapshotAge(plan.probe?.age_s ?? null)}
-            {probeIsStale(plan.probe) ? ' (非实时读数, 需要最新请点刷新盘点)' : ' (实时)'}
-            {plan.probe?.running ? ', 后台正在重扫' : ''}
-          </div>
-          {plan.register && registerChannelView(plan.register).tone === 'progress' && (
-            <div className="mt-1 text-[10px] text-ink-muted">{registerChannelView(plan.register).text}</div>
-          )}
-          {plan.register && registerChannelView(plan.register).tone === 'failure' && (
-            <div className="mt-1 text-[10px] text-status-error">
-              注册通道当前不可用, 非预演作业会停在第一段: {registerChannelView(plan.register).text}
-            </div>
-          )}
-        </div>
-      )}
+      {plan && <FleetPlanBlock plan={plan} />}
 
-      {status && (
-        <div className="mt-3 rounded-lg border border-line bg-canvas p-2.5">
-          <div className="mb-1 text-[11px] text-ink">
-            作业 {status.job_id || '-'} / 当前阶段 {status.stage || '-'} /{' '}
-            {status.running ? '运行中' : '已结束'}
-          </div>
-          {stalledAtFirstStage(status.stages) && (
-            <div className="mb-1 text-[10px] text-status-error">
-              作业停在第一段 {status.stages[0]?.name}, 后面各段都没有执行
-            </div>
-          )}
-          <ul className="flex flex-col gap-1">
-            {status.stages.map((stage, index) => (
-              <li key={stage.name} className="flex flex-wrap items-baseline gap-2 text-[11px]">
-                <span className={'font-medium ' + stageTone(stage.status)}>{stage.name}</span>
-                <span className="text-ink-muted">{stage.status}</span>
-                <span className="text-ink-muted">{stageCounts(stage)}</span>
-                {index === firstFailedStage(status.stages) && stage.error && (
-                  <span className="basis-full text-status-error">{stage.error}</span>
-                )}
-                {!stage.error && stage.detail && (
-                  <span className="basis-full text-ink-muted">{stage.detail}</span>
-                )}
-              </li>
-            ))}
-          </ul>
-          {status.error && <div className="mt-1 text-[10px] text-status-error">{status.error}</div>}
-        </div>
-      )}
+      {status && <FleetStatusBlock status={status} />}
 
-      {diff && (
-        <div className="mt-3 rounded-lg border border-line bg-canvas p-2.5 text-[11px]">
-          <div className="flex flex-wrap items-center gap-2 text-ink">
-            {diff.ok ? <CheckCircle2 className="size-3" /> : <AlertCircle className="size-3" />}
-            本地 {diff.local_accounts} / 远端 {diff.remote_accounts} / 一致 {diff.same}
-          </div>
-          <div className="mt-1 grid grid-cols-2 gap-x-3 text-[10px] text-ink-muted">
-            <span>本地独有 {diff.local_only.length}</span>
-            <span>远端独有 {diff.remote_only.length}</span>
-            <span>名称差异 {diff.name_diff.length}</span>
-            <span>分组差异 {diff.group_diff.length}</span>
-          </div>
-          {diff.local_only.length > 0 && (
-            <div className="mt-1 text-[10px] text-ink-secondary">
-              本地独有: {diff.local_only.slice(0, LIST_LIMIT).join(', ')}
-            </div>
-          )}
-          {diff.remote_only.length > 0 && (
-            <div className="text-[10px] text-ink-secondary">
-              远端独有: {diff.remote_only.slice(0, LIST_LIMIT).join(', ')}
-            </div>
-          )}
-          {diff.name_diff.slice(0, LIST_LIMIT).map((row) => (
-            <div key={'n' + row.email} className="text-[10px] text-ink-secondary">
-              名称 {row.email}: 本地 {row.local || '-'} / 远端 {row.remote || '-'}
-            </div>
-          ))}
-          {diff.group_diff.slice(0, LIST_LIMIT).map((row) => (
-            <div key={'g' + row.email} className="text-[10px] text-ink-secondary">
-              分组 {row.email}: 本地 {row.local || '-'} / 远端 {row.remote || '-'}
-            </div>
-          ))}
-          <div className="mt-1 text-[10px] text-ink-muted">
-            远端分组: {diff.remote_groups.join(', ') || '-'}
-          </div>
-        </div>
-      )}
+      {diff && <FleetDiffBlock diff={diff} />}
 
       {trace.length > 0 && (
         <ul className="mt-2 flex flex-col gap-0.5">

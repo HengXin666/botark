@@ -18,6 +18,7 @@ import {
   type FleetRegisterInfo,
   type FleetRunReply,
   type FleetRunRequest,
+  type FleetStage,
   type FleetStatus,
   type WorkspaceDiff
 } from '@shared/fleet'
@@ -125,6 +126,16 @@ export function nextRegisterText(plan: FleetPlan | null, touched: boolean, curre
   return String(planned)
 }
 
+/** Split a comma separated domain list, dropping blanks and duplicates. */
+export function parseDomains(text: string): string[] {
+  const seen = new Set<string>()
+  for (const part of text.split(',')) {
+    const domain = part.trim().toLowerCase()
+    if (domain !== '') seen.add(domain)
+  }
+  return [...seen]
+}
+
 /**
  * Build the run payload. An empty or untouched register field is omitted so the
  * gateway keeps ownership of the fuel rule instead of the panel pinning a value.
@@ -137,6 +148,7 @@ export function buildRunRequest(input: {
   fuelPerInviter: number
   prefix: string
   delay: number
+  domains?: string
   dryRun: boolean
 }): FleetRunRequest {
   const request: FleetRunRequest = {
@@ -148,6 +160,8 @@ export function buildRunRequest(input: {
   }
   const inviter = input.inviterCount.trim()
   if (inviter !== '') request.inviter_count = Math.max(0, Math.trunc(Number(inviter)) || 0)
+  const domains = parseDomains(input.domains ?? '')
+  if (domains.length > 0) request.domains = domains
   const register = input.registerCount.trim()
   if (input.registerTouched && register !== '') {
     request.register_count = Math.max(0, Math.trunc(Number(register)) || 0)
@@ -191,6 +205,22 @@ export function registerChannelView(register: FleetRegisterInfo | null): Registe
       if (reason !== '') return { tone: 'failure', text: reason }
       return { tone: 'hidden', text: '' }
   }
+}
+
+/**
+ * Describe the measured tiers of a stage. A stage without readable tier data
+ * must never read as zero successes, so the unavailable case says so explicitly.
+ */
+export function stageTierText(stage: FleetStage): string | null {
+  const tiers = stage.tiers
+  if (!tiers) return null
+  if (!tiers.available) return '档位数据未产生 (不能据此判断成功数量)'
+  const parts: string[] = []
+  if (tiers.pro2 !== null) parts.push('Pro2 ' + tiers.pro2)
+  if (tiers.pro1 !== null) parts.push('Pro1 ' + tiers.pro1)
+  if (tiers.unknown !== null && tiers.unknown > 0) parts.push('未知档 ' + tiers.unknown)
+  if (tiers.failed !== null && tiers.failed > 0) parts.push('失败 ' + tiers.failed)
+  return parts.length > 0 ? '实测档位: ' + parts.join(' / ') : '实测档位为空'
 }
 
 /**

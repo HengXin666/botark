@@ -5,6 +5,7 @@ import {
   planHeadline,
   registerChannelView,
   registerFieldValue,
+  stageTierText,
   tierSourceNotice
 } from './fleetPanel'
 import { parseFleetPlan, parseFleetRunReply } from '@shared/fleet'
@@ -253,5 +254,41 @@ describe('tier source notice', () => {
     )
     expect(notice).toContain('2 天前')
     expect(notice).toContain('不是当天实测')
+  })
+})
+
+describe('stage tier text', () => {
+  const stage = (tiers: unknown) => ({
+    name: 'register',
+    stage: 'register',
+    status: 'ok' as const,
+    success: 2,
+    failed: 0,
+    total: 2,
+    error: '',
+    detail: '',
+    tiers: tiers as never
+  })
+
+  it('prints the measured split when tiers are available', () => {
+    const text = stageTierText(
+      stage({ pro2: 1, pro1: 1, failed: 0, unknown: 0, available: true })
+    )
+    expect(text).toBe('实测档位: Pro2 1 / Pro1 1')
+  })
+
+  it('never reads as zero successes when tiers are unavailable', () => {
+    const text = stageTierText(stage({ pro2: null, pro1: null, failed: null, unknown: null, available: false }))
+    expect(text).toBe('档位数据未产生 (不能据此判断成功数量)')
+    expect(text).not.toContain('0')
+  })
+
+  it('has nothing to say when the stage carries no tiers', () => {
+    expect(stageTierText(stage(null))).toBeNull()
+  })
+
+  it('shows failures that the tier split counted', () => {
+    const text = stageTierText(stage({ pro2: 0, pro1: 0, failed: 3, unknown: 0, available: true }))
+    expect(text).toContain('失败 3')
   })
 })
