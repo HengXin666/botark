@@ -4,9 +4,13 @@ import { findHarkAccountId, harkPoolAccountId, harkPoolGroupName, harkTierForLim
 
 const GATEWAY = 'http://localhost:8920'
 
+/** Groups the pool sync owns. Any other group is a person's own layout and stays put. */
+const MANAGED_GROUPS = ['workspace', 'pro1', 'pro2']
+
 export interface HarkPoolSyncResult {
   added: number
   moved: number
+  kept: number
   existing: number
   refreshed: number
   failed: number
@@ -17,6 +21,11 @@ function groupIdFor(name: string): string {
   const state = useBotStore.getState()
   const existing = state.groups.find((group) => group.name.toLowerCase() === name.toLowerCase())
   return existing?.id ?? state.addGroup(name)
+}
+
+/** True when the pool sync is allowed to move a bot out of this group. */
+function managedGroup(name: string): boolean {
+  return MANAGED_GROUPS.includes(name.trim().toLowerCase())
 }
 
 function uniqueName(base: string, taken: string[]): string {
@@ -78,6 +87,7 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
   })
   let added = 0
   let moved = 0
+  let kept = 0
   let existing = 0
   let refreshed = 0
   let failed = 0
@@ -96,10 +106,16 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
       const rewrote = await hark.importCredentials({ accountId: known, rawInput: account.sessionToken })
       if (rewrote.signedIn) refreshed += 1
       else failed += 1
-      const bot = useBotStore.getState().bots.find((item) => item.accountIds.includes(known))
+      const state = useBotStore.getState()
+      const bot = state.bots.find((item) => item.accountIds.includes(known))
       if (bot && tier !== 'unknown' && bot.groupId !== groupId) {
-        useBotStore.getState().moveBotToGroup(bot.id, groupId)
-        moved += 1
+        const current = state.groups.find((group) => group.id === bot.groupId)
+        if (current && managedGroup(current.name)) {
+          state.moveBotToGroup(bot.id, groupId)
+          moved += 1
+        } else {
+          kept += 1
+        }
       } else {
         existing += 1
       }
@@ -129,5 +145,5 @@ export async function syncHarkPool(onProgress?: (text: string) => void): Promise
     added += 1
   }
 
-  return { added, moved, existing, refreshed, failed, skipped: parsed.skipped }
+  return { added, moved, kept, existing, refreshed, failed, skipped: parsed.skipped }
 }

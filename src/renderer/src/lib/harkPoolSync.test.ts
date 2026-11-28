@@ -110,3 +110,93 @@ describe('syncHarkPool live quota', () => {
     expect(useBotStore.getState().bots[0]?.groupId).toBe('grp_pro2')
   })
 })
+describe('syncHarkPool keeps hand made groups', () => {
+  const GROUPS = [
+    { id: 'grp_work', name: 'Workspace' },
+    { id: 'grp_pro1', name: 'Pro1' },
+    { id: 'grp_pro2', name: 'Pro2' },
+    { id: 'grp_cron', name: '定时任务' },
+    { id: 'grp_none', name: '无月额度' }
+  ]
+
+  function botIn(groupId: string) {
+    return {
+      id: 'bot_1',
+      name: 'acct',
+      emoji: '-',
+      description: '',
+      platformId: 'hark' as const,
+      groupId,
+      accountIds: ['acc_1'],
+      activeAccountId: 'acc_1',
+      memory: [],
+      notes: '',
+      createdAt: 1,
+      unread: 0
+    }
+  }
+
+  function seed(groupId: string) {
+    importMock.mockReset()
+    rpcMock.mockReset()
+    importMock.mockResolvedValue({ signedIn: true })
+    rpcMock.mockResolvedValue({
+      ok: true,
+      data: { meters: { harkTokens: { dailyLimit: 16_000_000 } } }
+    })
+    useBotStore.setState({
+      groups: GROUPS,
+      bots: [botIn(groupId)],
+      accounts: {
+        acc_1: {
+          id: 'acc_1',
+          platformId: 'hark',
+          displayName: 'acct@example.com',
+          handle: 'acct@example.com',
+          status: 'online'
+        }
+      },
+      messages: { bot_1: [] },
+      selectedBotId: 'bot_1',
+      connectAccount: async () => undefined
+    })
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/api/accounts/export')) {
+        return jsonResponse({ accounts: [{ email: 'acct@example.com', session_token: 't1' }] })
+      }
+      return jsonResponse({ accounts: [{ email: 'acct@example.com', limit: 8_000_000 }] })
+    }))
+  }
+
+  it('moves a bot out of Workspace by its measured tier', async () => {
+    seed('grp_work')
+    const result = await syncHarkPool()
+    expect(result.moved).toBe(1)
+    expect(result.kept).toBe(0)
+    expect(useBotStore.getState().bots[0]?.groupId).toBe('grp_pro2')
+  })
+
+  it('moves a bot between Pro1 and Pro2 by its measured tier', async () => {
+    seed('grp_pro1')
+    const result = await syncHarkPool()
+    expect(result.moved).toBe(1)
+    expect(result.kept).toBe(0)
+    expect(useBotStore.getState().bots[0]?.groupId).toBe('grp_pro2')
+  })
+
+  it('leaves a bot in a hand made group and counts it as kept', async () => {
+    seed('grp_cron')
+    const result = await syncHarkPool()
+    expect(result.moved).toBe(0)
+    expect(result.kept).toBe(1)
+    expect(useBotStore.getState().bots[0]?.groupId).toBe('grp_cron')
+  })
+
+  it('leaves a bot in the no quota group untouched', async () => {
+    seed('grp_none')
+    const result = await syncHarkPool()
+    expect(result.moved).toBe(0)
+    expect(result.kept).toBe(1)
+    expect(useBotStore.getState().bots[0]?.groupId).toBe('grp_none')
+  })
+})
