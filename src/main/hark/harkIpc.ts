@@ -572,9 +572,7 @@ export function registerHarkIpc(): void {
   ipcMain.handle(HARK_CHANNELS.remoteList, async () => listRemoteHarkImports())
 
   ipcMain.handle(HARK_CHANNELS.mirrorSettings, async () => defaultMirrorSettings())
-
   registerHarkFleetIpc()
-
   ipcMain.handle(HARK_CHANNELS.mirrorWorkspace, async (_event, request: unknown) => {
     if (typeof request !== 'object' || request === null) {
       throw new TypeError('Invalid hark mirror request')
