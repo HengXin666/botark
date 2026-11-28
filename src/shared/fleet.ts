@@ -31,6 +31,7 @@ export interface FleetProbeInfo {
 
 export interface FleetRegisterInfo {
   ok: boolean
+  running: boolean
   stage: string
   reason: string
   checked_at: number | null
@@ -192,6 +193,7 @@ function parseRegister(raw: unknown): FleetRegisterInfo | null {
   const doc = asRecord(raw)
   return {
     ok: asBool(doc.ok),
+    running: asBool(doc.running),
     stage: asText(doc.stage),
     reason: asText(doc.reason),
     checked_at: asNumber(doc.checked_at),

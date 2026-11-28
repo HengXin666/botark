@@ -33,6 +33,7 @@ import {
   nextRegisterText,
   planHeadline,
   registerBlockNotice,
+  registerRunningNotice,
   startFleetJob,
   suggestRegisterCount,
   syncLocalToVps,
@@ -378,6 +379,9 @@ export function FleetExpansion() {
             {probeIsStale(plan.probe) ? ' (非实时读数, 需要最新请点刷新盘点)' : ' (实时)'}
             {plan.probe?.running ? ', 后台正在重扫' : ''}
           </div>
+          {plan.register && registerRunningNotice(plan.register) !== null && (
+            <div className="mt-1 text-[10px] text-ink-muted">{registerRunningNotice(plan.register)}</div>
+          )}
           {plan.register && registerBlockNotice(plan.register) !== null && (
             <div className="mt-1 text-[10px] text-status-error">
               注册通道当前不可用, 非预演作业会停在第一段: {registerBlockNotice(plan.register)}

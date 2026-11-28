@@ -4,7 +4,9 @@ import {
   nextRegisterText,
   planHeadline,
   registerBlockNotice,
-  registerFieldValue
+  registerChannelState,
+  registerFieldValue,
+  registerRunningNotice
 } from './fleetPanel'
 import { parseFleetPlan, parseFleetRunReply } from '@shared/fleet'
 
@@ -148,8 +150,8 @@ describe('regression: gateway fuel fallback shape', () => {
 })
 
 describe('register channel notice', () => {
-  const block = (ok: boolean | null, reason: string) =>
-    parseFleetPlan({ ok: true, register: { ok, reason, stage: 'register' } }, 200).register
+  const block = (ok: boolean | null, reason: string, running = false) =>
+    parseFleetPlan({ ok: true, register: { ok, running, reason, stage: 'register' } }, 200).register
 
   it('shows the failure text when the gateway reports the channel down', () => {
     const notice = registerBlockNotice(block(false, '22:26:09 RATE-LIMITED first hit, cool 300.0s'))
@@ -172,5 +174,57 @@ describe('register channel notice', () => {
 
   it('treats a missing ok flag with no reason as unusable rather than healthy', () => {
     expect(registerBlockNotice(block(null, ''))).toContain('未给出失败原因')
+  })
+})
+
+describe('register channel three states', () => {
+  const block = (fields: Record<string, unknown>) =>
+    parseFleetPlan({ ok: true, register: fields }, 200).register
+
+  it('reads the running flag the gateway reports', () => {
+    const live = block({ ok: true, running: true, reason: '', last_job: '20261128-223644-416c15' })
+    expect(live?.running).toBe(true)
+    expect(live?.last_job).toBe('20261128-223644-416c15')
+  })
+
+  it('treats a live batch as in progress instead of a failure', () => {
+    const live = block({ ok: true, running: true, reason: '', last_job: 'job-1' })
+    expect(registerChannelState(live)).toBe('running')
+    expect(registerBlockNotice(live)).toBeNull()
+    expect(registerRunningNotice(live)).toContain('不是故障')
+  })
+
+  it('never turns a live batch red even when it carries a stale reason', () => {
+    const live = block({ ok: false, running: true, reason: 'register_channel_unknown' })
+    expect(registerChannelState(live)).toBe('running')
+    expect(registerBlockNotice(live)).toBeNull()
+    expect(registerRunningNotice(live)).toContain('正在跑批')
+  })
+
+  it('reports a stopped batch with a failure line as failed', () => {
+    const failed = block({ ok: false, running: false, reason: 'RATE-LIMITED first hit, cool 300.0s' })
+    expect(registerChannelState(failed)).toBe('failed')
+    expect(registerBlockNotice(failed)).toBe('RATE-LIMITED first hit, cool 300.0s')
+    expect(registerRunningNotice(failed)).toBeNull()
+  })
+
+  it('reports a healthy idle channel without any banner', () => {
+    const healthy = block({ ok: true, running: false, reason: '' })
+    expect(registerChannelState(healthy)).toBe('idle')
+    expect(registerBlockNotice(healthy)).toBeNull()
+    expect(registerRunningNotice(healthy)).toBeNull()
+  })
+
+  it('explains the unknown token without hiding it', () => {
+    const unknown = block({ ok: false, running: false, reason: 'register_channel_unknown' })
+    const notice = registerBlockNotice(unknown)
+    expect(notice).toContain('无法判定')
+    expect(notice).toContain('register_channel_unknown')
+  })
+
+  it('treats an unknown channel with no flags as failed rather than healthy', () => {
+    expect(registerChannelState(block({ ok: false, running: false, reason: 'register_channel_unknown' }))).toBe('failed')
+    expect(registerChannelState(block({}))).toBe('failed')
+    expect(registerChannelState(null)).toBe('idle')
   })
 })

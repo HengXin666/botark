@@ -153,13 +153,29 @@ export function buildRunRequest(input: {
   return request
 }
 
-/** Failure text for the register channel, or null when the gateway reports it usable. */
+export type RegisterChannelState = 'idle' | 'running' | 'failed'
+
+/** Three-state read of the register channel: a live batch is never a failure. */
+export function registerChannelState(register: FleetRegisterInfo | null): RegisterChannelState {
+  if (!register) return 'idle'
+  if (register.running) return 'running'
+  if (register.reason.trim() !== '' || register.ok !== true) return 'failed'
+  return 'idle'
+}
+
+/** Failure text for the register channel, or null when it is idle or in progress. */
 export function registerBlockNotice(register: FleetRegisterInfo | null): string | null {
-  if (!register) return null
+  if (registerChannelState(register) !== 'failed' || !register) return null
   const reason = register.reason.trim()
-  if (reason !== '') return reason
-  if (register.ok === true) return null
-  return '网关未给出失败原因, 该段最近一次不可用'
+  if (reason === '') return '网关未给出失败原因, 该段最近一次不可用'
+  if (reason === 'register_channel_unknown') return '网关无法判定最近一批的结论 (register_channel_unknown)'
+  return reason
+}
+
+/** Progress line shown while a register batch is still running. */
+export function registerRunningNotice(register: FleetRegisterInfo | null): string | null {
+  if (registerChannelState(register) !== 'running' || !register) return null
+  return '注册通道正在跑批, 作业 ' + (register.last_job || '-') + ' 还在进行, 不是故障'
 }
 
 /** Compact one-line summary for the plan block. */
