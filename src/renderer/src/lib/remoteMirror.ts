@@ -4,6 +4,7 @@
  */
 import { getBridge } from '@/lib/bridge'
 import { useBotStore } from '@/store/botStore'
+import type { HarkMirrorCounts } from '@shared/ipc'
 
 const SETTINGS_KEY = 'botark-remote-mirror-v1'
 
@@ -47,7 +48,14 @@ export function saveMirrorSettings(next: RemoteMirrorSettings): void {
 /** Import missing sessions on the VPS and mirror group names, bot names and assignments. */
 export async function mirrorWorkspaceToVps(
   onProgress?: (text: string) => void
-): Promise<{ accounts: number; imported: number; failed: number; groups: number; bots: number }> {
+): Promise<{
+  accounts: number
+  imported: number
+  failed: number
+  groups: number
+  bots: number
+  counts: HarkMirrorCounts | null
+}> {
   const bridge = getBridge()?.hark
   if (!bridge?.mirrorWorkspace) throw new Error('仅桌面版可用')
   const settings = loadMirrorSettings()

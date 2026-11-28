@@ -5,10 +5,13 @@ import {
   compareWithVps,
   loadFleetPlan,
   loadFleetStatus,
+  mirrorIsOld,
   registerChannelView,
   startFleetJob,
   syncLocalToVps,
-  type LocalRemoteDiff
+  unmaterializedBots,
+  type LocalRemoteDiff,
+  type MirrorOutcome
 } from '@/lib/fleetPanel'
 import {
   firstFailedStage,
@@ -17,6 +20,10 @@ import {
   type FleetRunRequest,
   type FleetStatus
 } from '@shared/fleet'
+
+/** What an instance that never materializes the metadata patch forces the operator to run. */
+export const OLD_MIRROR_LINE =
+  'VPS 镜像为旧版, 名称与分组无法物化 (账号已导入). 需在宿主执行: git pull --ff-only && docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build'
 
 export type OneClickStep = 'plan' | 'expand' | 'verify' | 'sync' | 'done'
 
@@ -32,7 +39,7 @@ export interface OneClickPorts {
   loadPlan: (request: FleetPlanRequest) => Promise<FleetPlan>
   startJob: (request: FleetRunRequest) => Promise<{ job_id: string; already_running: boolean; running: boolean }>
   pollStatus: () => Promise<FleetStatus>
-  syncToVps: (onProgress?: (line: string) => void) => Promise<unknown>
+  syncToVps: (onProgress?: (line: string) => void) => Promise<MirrorOutcome>
   compare: () => Promise<LocalRemoteDiff>
   sleep: (ms: number) => Promise<void>
   now: () => number
@@ -174,10 +181,18 @@ async function finish(
 ): Promise<OneClickState> {
   try {
     emit(state('sync', 'busy', '扩容完成, 正在同步到 VPS...'))
-    await ports.syncToVps((line) => handlers.onTrace(line))
-    emit(state('verify', 'busy', '同步完成, 正在校验双端一致...'))
+    const synced = await ports.syncToVps((line) => handlers.onTrace(line))
+    const old = mirrorIsOld(synced.counts)
+    emit(state('verify', 'busy', old ? '远端正跑旧版镜像, 正在核对账号是否导入...' : '同步完成, 正在校验双端一致...'))
     const diff = await ports.compare()
     handlers.onDiff(diff)
+    const forgotten = unmaterializedBots(diff)
+    if (old) {
+      handlers.onTrace('远端 metadata 只回 ok, 没有计数键, 判定为旧版镜像')
+      const line =
+        forgotten > 0 ? '远端有 ' + forgotten + ' 个账号未物化为 bot, 属旧版镜像行为. ' + OLD_MIRROR_LINE : OLD_MIRROR_LINE
+      return emit(state('verify', 'failed', line))
+    }
     if (!diff.ok) {
       const parts: string[] = []
       if (diff.local_only.length > 0) parts.push('本地独有 ' + diff.local_only.length)

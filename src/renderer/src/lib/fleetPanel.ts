@@ -22,6 +22,7 @@ import {
   type FleetStatus,
   type WorkspaceDiff
 } from '@shared/fleet'
+import type { HarkMirrorCounts } from '@shared/ipc'
 
 export interface LocalSnapshot {
   rows: FleetLocalRow[]
@@ -57,13 +58,7 @@ export async function startFleetJob(request: FleetRunRequest): Promise<FleetRunR
 }
 
 /** Push the local accounts, group names and bot names to the VPS. */
-export async function syncLocalToVps(onProgress?: (line: string) => void): Promise<{
-  accounts: number
-  imported: number
-  failed: number
-  groups: number
-  bots: number
-}> {
+export async function syncLocalToVps(onProgress?: (line: string) => void): Promise<MirrorOutcome> {
   const snapshot = localSnapshot()
   if (snapshot.rows.length === 0) throw new Error('本地没有 Hark bot 可同步')
   await resolveMirrorTarget()
@@ -71,9 +66,36 @@ export async function syncLocalToVps(onProgress?: (line: string) => void): Promi
   return mirrorWorkspaceToVps(onProgress)
 }
 
+export interface MirrorOutcome {
+  accounts: number
+  imported: number
+  failed: number
+  groups: number
+  bots: number
+  counts: HarkMirrorCounts | null
+}
+
+/**
+ * The metadata patch of an instance that predates the counter reply answers ok
+ * only, so the panel can name that case instead of reporting a clean sync.
+ */
+export function mirrorIsOld(counts: HarkMirrorCounts | null): boolean {
+  return counts === null
+}
+
+/**
+ * How many remote accounts have no bot behind them. An instance that answers the
+ * metadata patch without counters never materializes it while no renderer is
+ * alive, so this gap is that instance being old rather than a mismatch.
+ */
+export function unmaterializedBots(diff: LocalRemoteDiff): number {
+  return Math.max(0, diff.remote_accounts - diff.remote_bots)
+}
+
 export interface LocalRemoteDiff extends WorkspaceDiff {
   remote_groups: string[]
   local_groups: string[]
+  remote_bots: number
 }
 
 /** Pull the VPS workspace and diff it against the local Hark bots. */
@@ -88,7 +110,8 @@ export async function compareWithVps(onProgress?: (line: string) => void): Promi
   return {
     ...diff,
     remote_groups: remote.groups.map((group) => group.name),
-    local_groups: local.groups.map((group) => group.name)
+    local_groups: local.groups.map((group) => group.name),
+    remote_bots: remote.bots.length
   }
 }
 

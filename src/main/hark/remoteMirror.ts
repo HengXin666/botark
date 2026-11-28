@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fetch } from 'undici'
 import type { FleetPullRequest, RemoteWorkspaceSnapshot } from '@shared/fleet'
+import type { HarkMirrorCounts } from '@shared/ipc'
 
 export interface MirrorGroup { id: string; name: string }
 export interface MirrorBot { email: string; name: string; groupId: string }
@@ -27,6 +28,7 @@ export interface MirrorResult {
   failed: number
   groups: number
   bots: number
+  counts: HarkMirrorCounts | null
 }
 
 export const GATEWAY_BASE = 'http://127.0.0.1:8920'
@@ -225,8 +227,39 @@ export async function mirrorWorkspace(request: MirrorRequest): Promise<MirrorRes
     imported,
     failed,
     groups: payload.groups.length,
-    bots: payload.bots.length
+    bots: payload.bots.length,
+    counts: mirrorCounts(posted.body)
   }
+}
+
+const COUNT_KEYS = [
+  'groupsCreated',
+  'groupsRenamed',
+  'botsMatched',
+  'botsUpdated',
+  'botsCreated',
+  'botsUnmatched'
+] as const
+
+/**
+ * Read the per object counters the metadata patch answers with. A mirrored
+ * instance that only answers ok never materialized the patch, so the caller
+ * needs to tell that reply apart from a real one.
+ */
+function mirrorCounts(body: unknown): HarkMirrorCounts | null {
+  const doc = recordOf(body)
+  let seen = false
+  const out = {} as HarkMirrorCounts
+  for (const key of COUNT_KEYS) {
+    const value = doc[key]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      seen = true
+      out[key] = value
+    } else {
+      out[key] = 0
+    }
+  }
+  return seen ? out : null
 }
 
 function recordOf(value: unknown): Record<string, unknown> {

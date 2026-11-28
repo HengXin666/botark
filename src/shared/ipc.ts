@@ -1010,12 +1010,22 @@ export interface HarkMirrorRequest {
   bots: HarkMirrorBot[]
 }
 
+export interface HarkMirrorCounts {
+  groupsCreated: number
+  groupsRenamed: number
+  botsMatched: number
+  botsUpdated: number
+  botsCreated: number
+  botsUnmatched: number
+}
+
 export interface HarkMirrorResult {
   accounts: number
   imported: number
   failed: number
   groups: number
   bots: number
+  counts: HarkMirrorCounts | null
 }
 
 export interface HarkAuthStatus {

@@ -38,9 +38,20 @@ const FAILED_STATUS = parseFleetStatus(
   },
   200
 )
+const COUNTS = {
+  groupsCreated: 1,
+  groupsRenamed: 0,
+  botsMatched: 2,
+  botsUpdated: 2,
+  botsCreated: 0,
+  botsUnmatched: 0
+}
+const MIRROR_OK = { accounts: 2, imported: 0, failed: 0, groups: 1, bots: 2, counts: COUNTS }
+const MIRROR_OLD = { accounts: 2, imported: 2, failed: 0, groups: 1, bots: 2, counts: null }
 const DIFF_OK = {
   local_accounts: 2,
   remote_accounts: 2,
+  remote_bots: 2,
   local_only: [],
   remote_only: [],
   name_diff: [],
@@ -50,7 +61,14 @@ const DIFF_OK = {
   remote_groups: ['Pro2'],
   local_groups: ['Pro2']
 }
-const DIFF_BAD = { ...DIFF_OK, ok: false, remote_only: ['a@b.com'], local_accounts: 2, remote_accounts: 3 }
+const DIFF_BAD = {
+  ...DIFF_OK,
+  ok: false,
+  remote_only: ['a@b.com'],
+  local_accounts: 2,
+  remote_accounts: 3,
+  remote_bots: 3
+}
 
 const INPUT: OneClickInput = {
   plan: { target_pro2: 17, show_rate: 0.25 },
@@ -64,7 +82,7 @@ function ports(overrides: Partial<OneClickPorts> = {}): OneClickPorts {
     loadPlan: async () => OK_PLAN,
     startJob: async () => ({ job_id: 'job-1', already_running: false, running: true }),
     pollStatus: async () => OK_STATUS,
-    syncToVps: async () => ({ accounts: 2 }),
+    syncToVps: async () => MIRROR_OK,
     compare: async () => DIFF_OK,
     sleep: async () => undefined,
     now: () => 0,
@@ -153,7 +171,7 @@ describe('one-click expansion', () => {
         pollStatus: async () => FAILED_STATUS,
         syncToVps: async () => {
           synced += 1
-          return {}
+          return MIRROR_OLD
         }
       })
     )
@@ -233,6 +251,42 @@ describe('one-click expansion', () => {
     const second = await runOneClick(INPUT, handlers({ states: [] }), ports())
     expect(first.tone).toBe('ok')
     expect(second.tone).toBe('ok')
+  })
+
+  it('names an old mirror instead of claiming a finished sync', async () => {
+    const result = await runOneClick(
+      INPUT,
+      handlers({ states: [] }),
+      ports({ syncToVps: async () => MIRROR_OLD })
+    )
+    expect(result.tone).toBe('failed')
+    expect(result.step).toBe('verify')
+    expect(result.line).toContain('VPS 镜像为旧版')
+    expect(result.line).toContain('账号已导入')
+    expect(result.line).toContain('git pull --ff-only')
+    expect(result.line).not.toContain('已同步且双端一致')
+    expect(result.line).not.toContain('同步完成')
+  })
+
+  it('keeps the success path when the metadata reply carries counters', async () => {
+    const result = await runOneClick(INPUT, handlers({ states: [] }), ports())
+    expect(result.tone).toBe('ok')
+    expect(result.step).toBe('done')
+    expect(result.line).toContain('已同步且双端一致')
+  })
+
+  it('counts the accounts an old mirror left without a bot', async () => {
+    const lagging = { ...DIFF_OK, ok: false, remote_accounts: 95, remote_bots: 91, remote_only: [], same: 2 }
+    const result = await runOneClick(
+      INPUT,
+      handlers({ states: [] }),
+      ports({ syncToVps: async () => MIRROR_OLD, compare: async () => lagging })
+    )
+    expect(result.tone).toBe('failed')
+    expect(result.line).toContain('4 个账号未物化为 bot')
+    expect(result.line).toContain('属旧版镜像行为')
+    expect(result.line).toContain('git pull --ff-only')
+    expect(result.line).not.toContain('双端不一致')
   })
 
   it('gives up waiting when the job never finishes', async () => {

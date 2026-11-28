@@ -3,10 +3,12 @@ import {
   buildRunRequest,
   nextRegisterText,
   planHeadline,
+  mirrorIsOld,
   registerChannelView,
   registerFieldValue,
   stageTierText,
-  tierSourceNotice
+  tierSourceNotice,
+  unmaterializedBots
 } from './fleetPanel'
 import { parseFleetPlan, parseFleetRunReply } from '@shared/fleet'
 
@@ -308,5 +310,49 @@ describe('stage tier text', () => {
     const text = stageTierText(stage({ pro2: 2, pro1: 0, skip: 0, failed: 0, unknown: 0, available: true }))
     expect(text).toBe('实测档位: Pro2 2 / Pro1 0')
     expect(text).not.toContain('免费档')
+  })
+})
+
+describe('old remote mirror', () => {
+  const diff = (remoteAccounts: number, remoteBots: number) => ({
+    local_accounts: 2,
+    remote_accounts: remoteAccounts,
+    remote_bots: remoteBots,
+    local_only: [],
+    remote_only: [],
+    name_diff: [],
+    group_diff: [],
+    same: 2,
+    ok: true,
+    remote_groups: [],
+    local_groups: []
+  })
+
+  it('calls an answer without counters an old mirror', () => {
+    expect(mirrorIsOld(null)).toBe(true)
+  })
+
+  it('accepts an answer that carries counters', () => {
+    const counts = {
+      groupsCreated: 1,
+      groupsRenamed: 0,
+      botsMatched: 2,
+      botsUpdated: 2,
+      botsCreated: 0,
+      botsUnmatched: 0
+    }
+    expect(mirrorIsOld(counts)).toBe(false)
+  })
+
+  it('counts the accounts that never became bots', () => {
+    expect(unmaterializedBots(diff(95, 91))).toBe(4)
+  })
+
+  it('reports no shortfall when every account has a bot', () => {
+    expect(unmaterializedBots(diff(2, 2))).toBe(0)
+  })
+
+  it('never reports a negative shortfall', () => {
+    expect(unmaterializedBots(diff(2, 5))).toBe(0)
   })
 })
