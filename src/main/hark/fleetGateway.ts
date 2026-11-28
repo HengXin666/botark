@@ -16,8 +16,7 @@ import {
   type FleetStatus,
   type FleetPullRequest
 } from '@shared/fleet'
-import { GATEWAY_BASE, defaultMirrorSettings } from './remoteMirror'
-import { pullWorkspace } from './remoteWorkspacePull'
+import { GATEWAY_BASE, defaultMirrorSettings, pullWorkspace } from './remoteMirror'
 
 const PLAN_TIMEOUT_MS = 90000
 const RUN_TIMEOUT_MS = 60000

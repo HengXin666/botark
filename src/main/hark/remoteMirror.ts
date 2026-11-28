@@ -9,6 +9,7 @@ import { app } from 'electron'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fetch } from 'undici'
+import type { FleetPullRequest, RemoteWorkspaceSnapshot } from '@shared/fleet'
 
 export interface MirrorGroup { id: string; name: string }
 export interface MirrorBot { email: string; name: string; groupId: string }
@@ -226,4 +227,69 @@ export async function mirrorWorkspace(request: MirrorRequest): Promise<MirrorRes
     groups: payload.groups.length,
     bots: payload.bots.length
   }
+}
+
+function recordOf(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function rowsOf(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  if (value && typeof value === 'object') return Object.values(value as Record<string, unknown>)
+  return []
+}
+
+function handleOf(row: Record<string, unknown>): string {
+  return text(row.handle || row.displayName || row.email).toLowerCase()
+}
+
+/**
+ * Read groups, accounts, imports and bot names from the remote BotArk so the
+ * panel can diff them against the local rows.
+ */
+export async function pullWorkspace(request: FleetPullRequest): Promise<RemoteWorkspaceSnapshot> {
+  const base = text(request.url).replace(/\/+$/, '')
+  const token = text(request.token)
+  if (!base || !token) throw new Error('VPS 地址或 API Key 为空')
+
+  const workspace = await readJson(base, token, '/api/v1/workspace')
+  const imports = await readJson(base, token, '/api/v1/accounts/imports')
+  const root = recordOf(recordOf(workspace).workspace ?? workspace)
+
+  const groups: RemoteWorkspaceSnapshot['groups'] = []
+  for (const item of rowsOf(root.groups)) {
+    const row = recordOf(item)
+    const id = text(row.id)
+    const name = text(row.name)
+    if (id && name) groups.push({ id, name })
+  }
+
+  const handles: string[] = []
+  const byId = new Map<string, string>()
+  for (const item of rowsOf(root.accounts)) {
+    const row = recordOf(item)
+    const id = text(row.id)
+    const handle = handleOf(row)
+    if (!handle) continue
+    handles.push(handle)
+    if (id) byId.set(id, handle)
+  }
+
+  const bots: RemoteWorkspaceSnapshot['bots'] = []
+  for (const item of rowsOf(root.bots)) {
+    const row = recordOf(item)
+    const handle = byId.get(text(row.activeAccountId)) ?? ''
+    if (!handle) continue
+    bots.push({ handle, name: text(row.name), groupId: text(row.groupId) })
+  }
+
+  const importHandles: string[] = []
+  for (const item of rowsOf(recordOf(imports).accounts)) {
+    const handle = handleOf(recordOf(item))
+    if (handle) importHandles.push(handle)
+  }
+
+  return { groups, accounts: handles, imports: importHandles, bots }
 }
