@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildRunRequest, nextRegisterText, planHeadline, registerFieldValue } from './fleetPanel'
+import {
+  buildRunRequest,
+  nextRegisterText,
+  planHeadline,
+  registerBlockNotice,
+  registerFieldValue
+} from './fleetPanel'
 import { parseFleetPlan, parseFleetRunReply } from '@shared/fleet'
 
 const plan = (registerCount: number | null) =>
@@ -138,5 +144,33 @@ describe('regression: gateway fuel fallback shape', () => {
     )
     expect(reply.stages[0]?.total).toBe(0)
     expect(reply.stages[0]?.detail).toContain('would skip registering')
+  })
+})
+
+describe('register channel notice', () => {
+  const block = (ok: boolean | null, reason: string) =>
+    parseFleetPlan({ ok: true, register: { ok, reason, stage: 'register' } }, 200).register
+
+  it('shows the failure text when the gateway reports the channel down', () => {
+    const notice = registerBlockNotice(block(false, '22:26:09 RATE-LIMITED first hit, cool 300.0s'))
+    expect(notice).toBe('22:26:09 RATE-LIMITED first hit, cool 300.0s')
+  })
+
+  it('shows the failure text even when a stale ok flag says the channel is fine', () => {
+    const notice = registerBlockNotice(block(true, 'FAILED x@y.com turnstile gate'))
+    expect(notice).toBe('FAILED x@y.com turnstile gate')
+  })
+
+  it('stays silent only when the channel is usable and carries no failure text', () => {
+    expect(registerBlockNotice(block(true, ''))).toBeNull()
+    expect(registerBlockNotice(null)).toBeNull()
+  })
+
+  it('still warns when the channel is down without any reason text', () => {
+    expect(registerBlockNotice(block(false, ''))).toContain('未给出失败原因')
+  })
+
+  it('treats a missing ok flag with no reason as unusable rather than healthy', () => {
+    expect(registerBlockNotice(block(null, ''))).toContain('未给出失败原因')
   })
 })

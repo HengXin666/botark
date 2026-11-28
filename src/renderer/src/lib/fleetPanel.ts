@@ -13,6 +13,7 @@ import {
   type FleetLocalRow,
   type FleetPlan,
   type FleetPlanRequest,
+  type FleetRegisterInfo,
   type FleetRunReply,
   type FleetRunRequest,
   type FleetStatus,
@@ -150,6 +151,15 @@ export function buildRunRequest(input: {
     request.register_count = Math.max(0, Math.trunc(Number(register)) || 0)
   }
   return request
+}
+
+/** Failure text for the register channel, or null when the gateway reports it usable. */
+export function registerBlockNotice(register: FleetRegisterInfo | null): string | null {
+  if (!register) return null
+  const reason = register.reason.trim()
+  if (reason !== '') return reason
+  if (register.ok === true) return null
+  return '网关未给出失败原因, 该段最近一次不可用'
 }
 
 /** Compact one-line summary for the plan block. */
