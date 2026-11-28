@@ -5,6 +5,7 @@ import { getBridge } from '@/lib/bridge'
 import { useBotStore } from '@/store/botStore'
 import { loadMirrorSettings, mirrorWorkspaceToVps, saveMirrorSettings } from '@/lib/remoteMirror'
 import {
+  FLEET_DEFAULT_PREFIX,
   defaultRegisterCount,
   diffWorkspace,
   localWorkspaceRows,
@@ -110,10 +111,52 @@ export function registerFieldValue(plan: FleetPlan | null, fallback: number): st
   return String(fallback)
 }
 
+/**
+ * Build the register field text after a plan read: empty when the gateway left
+ * the field out, the gateway number otherwise, and untouched when hand edited.
+ */
+export function nextRegisterText(plan: FleetPlan | null, touched: boolean, current: string): string {
+  if (touched) return current
+  const planned = plan?.register_count
+  if (planned === null || planned === undefined) return ''
+  return String(planned)
+}
+
+/**
+ * Build the run payload. An empty or untouched register field is omitted so the
+ * gateway keeps ownership of the fuel rule instead of the panel pinning a value.
+ */
+export function buildRunRequest(input: {
+  targetPro2: number
+  inviterCount: string
+  registerCount: string
+  registerTouched: boolean
+  fuelPerInviter: number
+  prefix: string
+  delay: number
+  dryRun: boolean
+}): FleetRunRequest {
+  const request: FleetRunRequest = {
+    target_pro2: input.targetPro2,
+    fuel_per_inviter: input.fuelPerInviter,
+    prefix: input.prefix.trim() || FLEET_DEFAULT_PREFIX,
+    delay: input.delay,
+    dry_run: input.dryRun
+  }
+  const inviter = input.inviterCount.trim()
+  if (inviter !== '') request.inviter_count = Math.max(0, Math.trunc(Number(inviter)) || 0)
+  const register = input.registerCount.trim()
+  if (input.registerTouched && register !== '') {
+    request.register_count = Math.max(0, Math.trunc(Number(register)) || 0)
+  }
+  return request
+}
+
 /** Compact one-line summary for the plan block. */
 export function planHeadline(plan: FleetPlan): string {
   const parts: string[] = []
-  if (plan.register_count !== null) parts.push('注册 ' + plan.register_count)
+  if (plan.register_count === 0) parts.push('注册 0 (网关会跳过注册段)')
+  else if (plan.register_count !== null) parts.push('注册 ' + plan.register_count)
   if (plan.fuel_count !== null) parts.push('燃料号 ' + plan.fuel_count)
   if (plan.expected_pro2 !== null) parts.push('预计 Pro2 ' + plan.expected_pro2)
   if (plan.inviter_gap !== null) parts.push('邀请人缺口 ' + plan.inviter_gap)

@@ -21,17 +21,17 @@ import {
   snapshotAge,
   stalledAtFirstStage,
   type FleetPlan,
-  type FleetRunRequest,
   type FleetStage,
   type FleetStatus
 } from '@shared/fleet'
 import {
+  buildRunRequest,
   compareWithVps,
   loadFleetPlan,
   loadFleetStatus,
   localSnapshot,
+  nextRegisterText,
   planHeadline,
-  registerFieldValue,
   startFleetJob,
   suggestRegisterCount,
   syncLocalToVps,
@@ -138,9 +138,10 @@ export function FleetExpansion() {
     })
     setPlan(next)
     if (!next.ok) setError(next.error || '网关 plan 未返回 ok')
-    if (!registerTouched) {
-      setConfig((current) => ({ ...current, registerCount: registerFieldValue(next, Number(current.registerCount)) }))
-    }
+    setConfig((current) => ({
+      ...current,
+      registerCount: nextRegisterText(next, registerTouched, current.registerCount)
+    }))
     return next
   }
 
@@ -184,15 +185,16 @@ export function FleetExpansion() {
     try {
       const planned = plan ?? (await fetchPlan())
       if (!planned.ok) throw new Error(planned.error || 'plan 未就绪, 不发起 run')
-      const request: FleetRunRequest = {
-        target_pro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
-        inviter_count: config.inviterCount.trim() === '' ? undefined : toInt(config.inviterCount, 0),
-        register_count: registerTouched ? toInt(config.registerCount, 0) : undefined,
-        fuel_per_inviter: config.fuelPerInviter,
-        prefix: config.prefix.trim() || FLEET_DEFAULT_PREFIX,
+      const request = buildRunRequest({
+        targetPro2: toInt(String(config.targetPro2), FLEET_DEFAULT_TARGET_PRO2),
+        inviterCount: config.inviterCount,
+        registerCount: config.registerCount,
+        registerTouched,
+        fuelPerInviter: config.fuelPerInviter,
+        prefix: config.prefix,
         delay: config.delay,
-        dry_run: dryRun
-      }
+        dryRun
+      })
       push('提交 ' + (dryRun ? '预演' : '扩容') + ' 作业: ' + JSON.stringify(request))
       const reply = await startFleetJob(request)
       setStatus({
