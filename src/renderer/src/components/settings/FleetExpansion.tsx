@@ -85,7 +85,7 @@ function Field(props: {
   hint?: string
 }) {
   return (
-    <label className="flex min-w-[130px] flex-1 flex-col gap-1">
+    <label className="flex min-w-0 flex-col gap-1">
       <span className="text-[11px] text-ink-muted">{props.label}</span>
       <input
         value={props.value}
@@ -255,7 +255,7 @@ export function FleetExpansion() {
         <span className="text-[11px] text-ink-muted">本地 Hark bot {localCount}</span>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <Field
           label="目标 Pro2 数"
           value={String(config.targetPro2)}
