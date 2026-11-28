@@ -33,6 +33,7 @@ import {
   nextRegisterText,
   planHeadline,
   registerChannelView,
+  tierSourceNotice,
   startFleetJob,
   suggestRegisterCount,
   syncLocalToVps,
@@ -372,6 +373,9 @@ export function FleetExpansion() {
             <div className="mt-1 text-[10px] text-ink-muted">
               额度来源 {plan.quota.source || '-'}, 采样于 {snapshotAge(plan.quota.age_s)}
             </div>
+          )}
+          {tierSourceNotice(plan) !== null && (
+            <div className="text-[10px] text-status-attention">{tierSourceNotice(plan)}</div>
           )}
           <div className={'text-[10px] ' + (probeIsStale(plan.probe) ? 'text-status-attention' : 'text-ink-muted')}>
             邀请人快照 {snapshotAge(plan.probe?.age_s ?? null)}

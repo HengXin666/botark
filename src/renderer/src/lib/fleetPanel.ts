@@ -6,7 +6,9 @@ import { useBotStore } from '@/store/botStore'
 import { loadMirrorSettings, mirrorWorkspaceToVps, saveMirrorSettings } from '@/lib/remoteMirror'
 import {
   FLEET_DEFAULT_PREFIX,
+  STALE_AFTER_S,
   defaultRegisterCount,
+  snapshotAge,
   diffWorkspace,
   localWorkspaceRows,
   remoteWorkspaceRows,
@@ -189,6 +191,26 @@ export function registerChannelView(register: FleetRegisterInfo | null): Registe
       if (reason !== '') return { tone: 'failure', text: reason }
       return { tone: 'hidden', text: '' }
   }
+}
+
+/**
+ * Say how the tier counts were derived. The gateway merges the cached reading
+ * with the pool file, so an old cache must not read as a same-day measurement.
+ */
+export function tierSourceNotice(plan: FleetPlan): string | null {
+  const sources = plan.tier_sources
+  const derived = sources !== null && (sources.pool !== null || sources.cache !== null)
+  if (!derived) return null
+  const age = plan.quota?.age_s ?? null
+  const parts: string[] = []
+  if (sources.cache !== null && sources.pool !== null) {
+    parts.push('缓存 ' + sources.cache + ' / 池文件 ' + sources.pool)
+  }
+  if (sources.none !== null && sources.none > 0) parts.push('无档位 ' + sources.none)
+  const origin = '档位由' + (parts.length > 0 ? parts.join(' / ') + ' 合并推出' : '缓存与池文件合并推出')
+  if (age === null) return origin + ', 采样时间未知'
+  if (age <= STALE_AFTER_S) return origin + ', 读数较新 (额度采样于 ' + snapshotAge(age) + ')'
+  return origin + ', 不是当天实测 (额度采样于 ' + snapshotAge(age) + ')'
 }
 
 /** Compact one-line summary for the plan block. */

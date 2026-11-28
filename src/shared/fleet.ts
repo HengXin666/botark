@@ -22,6 +22,12 @@ export interface FleetQuotaInfo {
   age_s: number | null
 }
 
+export interface FleetTierSources {
+  cache: number | null
+  pool: number | null
+  none: number | null
+}
+
 export interface FleetProbeInfo {
   sampled_at: number | null
   age_s: number | null
@@ -71,6 +77,7 @@ export interface FleetPlan {
   register_count: number | null
   expected_pro2: number | null
   quota: FleetQuotaInfo | null
+  tier_sources: FleetTierSources | null
   probe: FleetProbeInfo | null
   register: FleetRegisterInfo | null
   error: string
@@ -180,6 +187,16 @@ function parseQuota(raw: unknown): FleetQuotaInfo | null {
   }
 }
 
+function parseTierSources(raw: unknown): FleetTierSources | null {
+  if (!raw || typeof raw !== 'object') return null
+  const doc = asRecord(raw)
+  return {
+    cache: asNumber(doc.cache),
+    pool: asNumber(doc.pool),
+    none: asNumber(doc.none)
+  }
+}
+
 function parseProbe(raw: unknown): FleetProbeInfo | null {
   if (!raw || typeof raw !== 'object') return null
   const doc = asRecord(raw)
@@ -254,6 +271,7 @@ export function parseFleetPlan(raw: unknown, status = 200): FleetPlan {
     register_count: asNumber(doc.register_count),
     expected_pro2: asNumber(doc.expected_pro2),
     quota: parseQuota(doc.quota),
+    tier_sources: parseTierSources(doc.tier_sources),
     probe: parseProbe(doc.probe),
     register: parseRegister(doc.register),
     error: errorText(doc, status)

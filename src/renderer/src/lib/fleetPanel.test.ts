@@ -4,7 +4,8 @@ import {
   nextRegisterText,
   planHeadline,
   registerChannelView,
-  registerFieldValue
+  registerFieldValue,
+  tierSourceNotice
 } from './fleetPanel'
 import { parseFleetPlan, parseFleetRunReply } from '@shared/fleet'
 
@@ -211,5 +212,46 @@ describe('register channel view', () => {
   it('never surfaces an internal machine token as an upstream reason', () => {
     const view = registerChannelView(block({ verdict: 'unknown', reason: 'register_channel_unknown' }))
     expect(view.text).not.toContain('register_channel_unknown')
+  })
+})
+
+describe('tier source notice', () => {
+  const planWith = (fields: Record<string, unknown>) =>
+    parseFleetPlan({ ok: true, pro2_count: 12, ...fields }, 200)
+
+  it('says the tier counts are merged, not measured today', () => {
+    const notice = tierSourceNotice(
+      planWith({ tier_sources: { cache: 47, pool: 45, none: 3 }, quota: { source: 'cache+pool', age_s: 1125242.1 } })
+    )
+    expect(notice).toContain('缓存 47 / 池文件 45')
+    expect(notice).toContain('无档位 3')
+    expect(notice).toContain('不是当天实测')
+    expect(notice).toContain('13 天前')
+  })
+
+  it('warns when the sampling time is unknown', () => {
+    const notice = tierSourceNotice(planWith({ tier_sources: { cache: 1, pool: 1, none: 0 }, quota: null }))
+    expect(notice).toContain('采样时间未知')
+  })
+
+  it('stays hidden when the gateway sends no tier sources', () => {
+    expect(tierSourceNotice(planWith({}))).toBeNull()
+  })
+
+  it('does not call a fresh reading stale', () => {
+    const notice = tierSourceNotice(
+      planWith({ tier_sources: { cache: 95, pool: 0, none: 0 }, quota: { source: 'cache', age_s: 30 } })
+    )
+    expect(notice).toContain('30 秒前')
+    expect(notice).toContain('读数较新')
+    expect(notice).not.toContain('不是当天实测')
+  })
+
+  it('calls an old reading stale', () => {
+    const notice = tierSourceNotice(
+      planWith({ tier_sources: { cache: 95, pool: 0, none: 0 }, quota: { source: 'cache', age_s: 86400 * 2 } })
+    )
+    expect(notice).toContain('2 天前')
+    expect(notice).toContain('不是当天实测')
   })
 })

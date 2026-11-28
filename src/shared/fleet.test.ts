@@ -370,3 +370,33 @@ describe('register verdict contract', () => {
     expect(plan.register?.verdict).toBe('')
   })
 })
+
+describe('tier sources', () => {
+  it('parses the merged tier source counts', () => {
+    const plan = parseFleetPlan(
+      { ok: true, pro2_count: 12, tier_sources: { cache: 47, pool: 45, none: 3 } },
+      200
+    )
+    expect(plan.pro2_count).toBe(12)
+    expect(plan.tier_sources).toEqual({ cache: 47, pool: 45, none: 3 })
+  })
+
+  it('leaves tier sources null when the gateway omits them', () => {
+    const plan = parseFleetPlan({ ok: true, pro2_count: 12 }, 200)
+    expect(plan.tier_sources).toBeNull()
+  })
+
+  it('keeps an incomplete tier source block readable', () => {
+    const plan = parseFleetPlan({ ok: true, tier_sources: { cache: 47 } }, 200)
+    expect(plan.tier_sources?.cache).toBe(47)
+    expect(plan.tier_sources?.pool).toBeNull()
+    expect(plan.tier_sources?.none).toBeNull()
+  })
+
+  it('does not treat the old underestimated count as authoritative', () => {
+    const plan = parseFleetPlan({ ok: true, pro2_count: 12, target_gap: 5, target_pro2: 17 }, 200)
+    expect(plan.target_gap).toBe(5)
+    expect(plan.target_pro2).toBe(17)
+    expect(plan.pro2_count).toBe(12)
+  })
+})
