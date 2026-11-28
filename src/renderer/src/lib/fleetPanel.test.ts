@@ -3,10 +3,8 @@ import {
   buildRunRequest,
   nextRegisterText,
   planHeadline,
-  registerBlockNotice,
-  registerChannelState,
-  registerFieldValue,
-  registerRunningNotice
+  registerChannelView,
+  registerFieldValue
 } from './fleetPanel'
 import { parseFleetPlan, parseFleetRunReply } from '@shared/fleet'
 
@@ -149,82 +147,69 @@ describe('regression: gateway fuel fallback shape', () => {
   })
 })
 
-describe('register channel notice', () => {
-  const block = (ok: boolean | null, reason: string, running = false) =>
-    parseFleetPlan({ ok: true, register: { ok, running, reason, stage: 'register' } }, 200).register
-
-  it('shows the failure text when the gateway reports the channel down', () => {
-    const notice = registerBlockNotice(block(false, '22:26:09 RATE-LIMITED first hit, cool 300.0s'))
-    expect(notice).toBe('22:26:09 RATE-LIMITED first hit, cool 300.0s')
-  })
-
-  it('shows the failure text even when a stale ok flag says the channel is fine', () => {
-    const notice = registerBlockNotice(block(true, 'FAILED x@y.com turnstile gate'))
-    expect(notice).toBe('FAILED x@y.com turnstile gate')
-  })
-
-  it('stays silent only when the channel is usable and carries no failure text', () => {
-    expect(registerBlockNotice(block(true, ''))).toBeNull()
-    expect(registerBlockNotice(null)).toBeNull()
-  })
-
-  it('still warns when the channel is down without any reason text', () => {
-    expect(registerBlockNotice(block(false, ''))).toContain('未给出失败原因')
-  })
-
-  it('treats a missing ok flag with no reason as unusable rather than healthy', () => {
-    expect(registerBlockNotice(block(null, ''))).toContain('未给出失败原因')
-  })
-})
-
-describe('register channel three states', () => {
+describe('register channel view', () => {
   const block = (fields: Record<string, unknown>) =>
     parseFleetPlan({ ok: true, register: fields }, 200).register
 
-  it('reads the running flag the gateway reports', () => {
-    const live = block({ ok: true, running: true, reason: '', last_job: '20261128-223644-416c15' })
-    expect(live?.running).toBe(true)
-    expect(live?.last_job).toBe('20261128-223644-416c15')
+  it('reads the verdict the gateway reports', () => {
+    expect(block({ verdict: 'running' })?.verdict).toBe('running')
+    expect(block({ verdict: 'stopped' })?.verdict).toBe('stopped')
+    expect(block({ verdict: 'unknown' })?.verdict).toBe('unknown')
   })
 
-  it('treats a live batch as in progress instead of a failure', () => {
-    const live = block({ ok: true, running: true, reason: '', last_job: 'job-1' })
-    expect(registerChannelState(live)).toBe('running')
-    expect(registerBlockNotice(live)).toBeNull()
-    expect(registerRunningNotice(live)).toContain('不是故障')
+  it('keeps an unrecognised verdict empty instead of guessing one', () => {
+    expect(block({ verdict: 'weird' })?.verdict).toBe('')
+    expect(block({})?.verdict).toBe('')
   })
 
-  it('never turns a live batch red even when it carries a stale reason', () => {
-    const live = block({ ok: false, running: true, reason: 'register_channel_unknown' })
-    expect(registerChannelState(live)).toBe('running')
-    expect(registerBlockNotice(live)).toBeNull()
-    expect(registerRunningNotice(live)).toContain('正在跑批')
+  it('shows a running batch as progress, never as a failure', () => {
+    const view = registerChannelView(
+      block({ verdict: 'running', running: true, ok: true, reason: '', last_job: '20261128-224119-740211' })
+    )
+    expect(view.tone).toBe('progress')
+    expect(view.text).toContain('20261128-224119-740211')
+    expect(view.text).toContain('不是故障')
   })
 
-  it('reports a stopped batch with a failure line as failed', () => {
-    const failed = block({ ok: false, running: false, reason: 'RATE-LIMITED first hit, cool 300.0s' })
-    expect(registerChannelState(failed)).toBe('failed')
-    expect(registerBlockNotice(failed)).toBe('RATE-LIMITED first hit, cool 300.0s')
-    expect(registerRunningNotice(failed)).toBeNull()
+  it('shows a stopped batch as progress rather than a channel fault', () => {
+    const view = registerChannelView(block({ verdict: 'stopped', running: false, ok: false, reason: '' }))
+    expect(view.tone).toBe('progress')
+    expect(view.text).toContain('已被手动停止')
+    expect(view.text).toContain('不是通道故障')
   })
 
-  it('reports a healthy idle channel without any banner', () => {
-    const healthy = block({ ok: true, running: false, reason: '' })
-    expect(registerChannelState(healthy)).toBe('idle')
-    expect(registerBlockNotice(healthy)).toBeNull()
-    expect(registerRunningNotice(healthy)).toBeNull()
+  it('shows the upstream text verbatim when the batch failed', () => {
+    const raw = 'hkx@loliko.top ERROR URLError(SSLEOFError(8, \'[SSL: UNEXPECTED_EOF_WHILE_READING]\'))'
+    const view = registerChannelView(block({ verdict: 'failed', ok: false, reason: raw }))
+    expect(view.tone).toBe('failure')
+    expect(view.text).toBe(raw)
   })
 
-  it('explains the unknown token without hiding it', () => {
-    const unknown = block({ ok: false, running: false, reason: 'register_channel_unknown' })
-    const notice = registerBlockNotice(unknown)
-    expect(notice).toContain('无法判定')
-    expect(notice).toContain('register_channel_unknown')
+  it('says the upstream gave no text when a failed batch carries an empty reason', () => {
+    const view = registerChannelView(block({ verdict: 'failed', ok: false, reason: '' }))
+    expect(view.tone).toBe('failure')
+    expect(view.text).toBe('上游未给出失败文本')
   })
 
-  it('treats an unknown channel with no flags as failed rather than healthy', () => {
-    expect(registerChannelState(block({ ok: false, running: false, reason: 'register_channel_unknown' }))).toBe('failed')
-    expect(registerChannelState(block({}))).toBe('failed')
-    expect(registerChannelState(null)).toBe('idle')
+  it('names an undecidable batch without inventing an upstream error', () => {
+    const view = registerChannelView(block({ verdict: 'unknown', ok: false, reason: '' }))
+    expect(view.tone).toBe('failure')
+    expect(view.text).toBe('网关无法判定最近一批的结论')
+  })
+
+  it('stays hidden for a healthy channel', () => {
+    expect(registerChannelView(block({ verdict: 'ok', ok: true, reason: '' })).tone).toBe('hidden')
+    expect(registerChannelView(null)).toEqual({ tone: 'hidden', text: '' })
+  })
+
+  it('falls back to the flags when the gateway sends no verdict at all', () => {
+    expect(registerChannelView(block({ running: true })).tone).toBe('progress')
+    expect(registerChannelView(block({ reason: 'boom' }))).toEqual({ tone: 'failure', text: 'boom' })
+    expect(registerChannelView(block({})).tone).toBe('hidden')
+  })
+
+  it('never surfaces an internal machine token as an upstream reason', () => {
+    const view = registerChannelView(block({ verdict: 'unknown', reason: 'register_channel_unknown' }))
+    expect(view.text).not.toContain('register_channel_unknown')
   })
 })

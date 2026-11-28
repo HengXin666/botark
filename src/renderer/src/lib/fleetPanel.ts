@@ -153,29 +153,42 @@ export function buildRunRequest(input: {
   return request
 }
 
-export type RegisterChannelState = 'idle' | 'running' | 'failed'
+export type RegisterChannelTone = 'hidden' | 'progress' | 'failure'
 
-/** Three-state read of the register channel: a live batch is never a failure. */
-export function registerChannelState(register: FleetRegisterInfo | null): RegisterChannelState {
-  if (!register) return 'idle'
-  if (register.running) return 'running'
-  if (register.reason.trim() !== '' || register.ok !== true) return 'failed'
-  return 'idle'
+export interface RegisterChannelView {
+  tone: RegisterChannelTone
+  text: string
 }
 
-/** Failure text for the register channel, or null when it is idle or in progress. */
-export function registerBlockNotice(register: FleetRegisterInfo | null): string | null {
-  if (registerChannelState(register) !== 'failed' || !register) return null
+/**
+ * Turn the gateway verdict into one banner. The verdict is the single source of
+ * truth, so a running or stopped batch is never shown as a channel failure.
+ */
+export function registerChannelView(register: FleetRegisterInfo | null): RegisterChannelView {
+  if (!register) return { tone: 'hidden', text: '' }
   const reason = register.reason.trim()
-  if (reason === '') return '网关未给出失败原因, 该段最近一次不可用'
-  if (reason === 'register_channel_unknown') return '网关无法判定最近一批的结论 (register_channel_unknown)'
-  return reason
-}
-
-/** Progress line shown while a register batch is still running. */
-export function registerRunningNotice(register: FleetRegisterInfo | null): string | null {
-  if (registerChannelState(register) !== 'running' || !register) return null
-  return '注册通道正在跑批, 作业 ' + (register.last_job || '-') + ' 还在进行, 不是故障'
+  switch (register.verdict) {
+    case 'running':
+      return {
+        tone: 'progress',
+        text: '注册通道正在跑批, 作业 ' + (register.last_job || '-') + ' 还在进行, 不是故障'
+      }
+    case 'stopped':
+      return { tone: 'progress', text: '该批次已被手动停止, 不是通道故障' }
+    case 'failed':
+      return {
+        tone: 'failure',
+        text: reason === '' ? '上游未给出失败文本' : reason
+      }
+    case 'unknown':
+      return { tone: 'failure', text: '网关无法判定最近一批的结论' }
+    case 'ok':
+      return { tone: 'hidden', text: '' }
+    default:
+      if (register.running) return { tone: 'progress', text: '注册通道正在跑批, 不是故障' }
+      if (reason !== '') return { tone: 'failure', text: reason }
+      return { tone: 'hidden', text: '' }
+  }
 }
 
 /** Compact one-line summary for the plan block. */

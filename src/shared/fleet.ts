@@ -29,7 +29,10 @@ export interface FleetProbeInfo {
   running: boolean
 }
 
+export type FleetRegisterVerdict = 'ok' | 'failed' | 'running' | 'stopped' | 'unknown' | ''
+
 export interface FleetRegisterInfo {
+  verdict: FleetRegisterVerdict
   ok: boolean
   running: boolean
   stage: string
@@ -188,10 +191,26 @@ function parseProbe(raw: unknown): FleetProbeInfo | null {
   }
 }
 
+/** Read the gateway verdict, keeping an unrecognised value rather than guessing. */
+function parseRegisterVerdict(value: unknown): FleetRegisterVerdict {
+  const text = asText(value)
+  if (
+    text === 'ok' ||
+    text === 'failed' ||
+    text === 'running' ||
+    text === 'stopped' ||
+    text === 'unknown'
+  ) {
+    return text
+  }
+  return ''
+}
+
 function parseRegister(raw: unknown): FleetRegisterInfo | null {
   if (!raw || typeof raw !== 'object') return null
   const doc = asRecord(raw)
   return {
+    verdict: parseRegisterVerdict(doc.verdict),
     ok: asBool(doc.ok),
     running: asBool(doc.running),
     stage: asText(doc.stage),

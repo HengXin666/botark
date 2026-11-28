@@ -331,3 +331,42 @@ describe('freshness and failure display', () => {
     expect(stalledAtFirstStage([])).toBe(false)
   })
 })
+
+describe('register verdict contract', () => {
+  const liveBlock = {
+    ok: false,
+    running: false,
+    verdict: 'stopped',
+    stage: 'register',
+    reason: '',
+    job_id: '20261128-224119-740211',
+    last_job: '20261128-224119-740211',
+    exit: -15,
+    count: 1,
+    target: 1,
+    checked_at: 1795876879.2,
+    registered: 0,
+    attempted: 0,
+    future_field: 'ignored'
+  }
+
+  it('parses the real register block and ignores unknown keys', () => {
+    const plan = parseFleetPlan({ ok: true, register: liveBlock }, 200)
+    expect(plan.register?.verdict).toBe('stopped')
+    expect(plan.register?.last_job).toBe('20261128-224119-740211')
+    expect(plan.register?.ok).toBe(false)
+    expect(plan.register?.reason).toBe('')
+  })
+
+  it('carries every verdict the gateway can send', () => {
+    for (const verdict of ['ok', 'failed', 'running', 'stopped', 'unknown']) {
+      const plan = parseFleetPlan({ ok: true, register: { ...liveBlock, verdict } }, 200)
+      expect(plan.register?.verdict).toBe(verdict)
+    }
+  })
+
+  it('does not accept an internal token as a verdict', () => {
+    const plan = parseFleetPlan({ ok: true, register: { ...liveBlock, verdict: 'register_channel_unknown' } }, 200)
+    expect(plan.register?.verdict).toBe('')
+  })
+})
