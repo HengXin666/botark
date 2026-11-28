@@ -298,9 +298,15 @@ describe('stage tier text', () => {
     expect(text).toContain('不能当满血号用')
   })
 
-  it('reads a tally without skip as the older gateway shape', () => {
+  it('says nothing about the free tier when its count is missing', () => {
     const text = stageTierText(stage({ pro2: 1, pro1: 0, failed: 0, unknown: 0, available: true }))
     expect(text).toBe('实测档位: Pro2 1 / Pro1 0')
+    expect(text).not.toContain('免费档')
+  })
+
+  it('hides a free tier count of zero', () => {
+    const text = stageTierText(stage({ pro2: 2, pro1: 0, skip: 0, failed: 0, unknown: 0, available: true }))
+    expect(text).toBe('实测档位: Pro2 2 / Pro1 0')
     expect(text).not.toContain('免费档')
   })
 })
