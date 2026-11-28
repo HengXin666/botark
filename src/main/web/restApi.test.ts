@@ -151,6 +151,40 @@ describe('rest api v1', () => {
     expect(listed.body.accounts[0]).toMatchObject({ accountId: 'acc_hark_new' })
   })
 
+
+  it('reports per-field counters from the workspace metadata patch', async () => {
+    const muted = new RestApi({
+      version: '1.0.0-test',
+      getSnapshot: () => snapshot,
+      invokeIpc: async () => ({ ok: false, status: 500 }),
+      apiToken: TOKEN,
+      applyWorkspaceMetadata: async () => ({ ok: true, botsMatched: 3, botsUpdated: 2, botsCreated: 1 })
+    })
+    const muteServer = createServer((req, res) => {
+      void muted.handle(req, res, new URL(req.url || '/', 'http://localhost')).then((handled) => {
+        if (!handled) {
+          res.writeHead(404)
+          res.end()
+        }
+      })
+    })
+    await new Promise<void>((resolve) => muteServer.listen(0, '127.0.0.1', resolve))
+    const address = muteServer.address()
+    if (!address || typeof address === 'string') throw new Error('no address')
+    try {
+      const response = await fetch('http://127.0.0.1:' + address.port + '/api/v1/workspace/metadata', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groups: [], bots: [] })
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ ok: true, botsMatched: 3, botsUpdated: 2, botsCreated: 1 })
+    } finally {
+      muted.dispose()
+      await new Promise<void>((resolve) => muteServer.close(() => resolve()))
+    }
+  })
+
   it('applies a workspace metadata patch through the admin REST API', async () => {
     const payload = {
       groups: [{ id: 'grp_pro1', name: 'Pro1' }],

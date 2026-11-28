@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import {
+  applyWorkspaceMetadataPatch,
+  type WorkspaceMetadataApplyOptions,
+  type WorkspaceMetadataApplyResult
+} from './workspaceMetadataPatch'
 import { app, BrowserWindow, dialog, ipcMain, session as electronSession } from 'electron'
 import {
   MOBILE_SYNC_CHANNELS,
@@ -201,6 +206,21 @@ export async function stopMobileSyncServer(): Promise<void> {
 /** Latest workspace snapshot mirrored from the web UI; used by the REST API. */
 export function getMobileWorkspaceSnapshot(): MobileWorkspaceSnapshot | null {
   return ensureServer().getSnapshot()
+}
+
+/**
+ * Apply a metadata patch to the mirrored snapshot so REST clients see it
+ * without waiting for a browser tab to push one.
+ */
+export function applyMobileWorkspaceMetadataPatch(
+  payload: unknown,
+  options: WorkspaceMetadataApplyOptions = { createMissingBots: true }
+): WorkspaceMetadataApplyResult {
+  const server = ensureServer()
+  const current = server.getSnapshot()
+  const patched = applyWorkspaceMetadataPatch(current, payload, options)
+  server.applySnapshotPatch(patched.snapshot)
+  return patched.result
 }
 
 /** Subscribe to live workspace events for the REST SSE endpoint. */

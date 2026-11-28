@@ -43,8 +43,8 @@ export interface RestApiOptions {
   ) => void
   /** Return false after a key is revoked; open SSE streams are closed. */
   isKeyActive?: (keyId: string) => boolean
-  /** Apply a metadata-only workspace patch in the live renderer. */
-  applyWorkspaceMetadata?: (payload: unknown) => Promise<{ ok: true }>
+  /** Apply a metadata-only workspace patch and report per-field counters. */
+  applyWorkspaceMetadata?: (payload: unknown) => Promise<Record<string, unknown>>
   /** Subscribe to live workspace events; return an unsubscribe function. */
   subscribeEvents?: (listener: (event: unknown) => void) => () => void
 }

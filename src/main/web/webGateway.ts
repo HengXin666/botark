@@ -26,7 +26,11 @@ import {
   WebAuth
 } from './webAuth'
 import { RestApi } from './restApi'
-import { getMobileWorkspaceSnapshot, subscribeMobileSyncEvents } from '../mobileSync/mobileSyncIpc'
+import {
+  applyMobileWorkspaceMetadataPatch,
+  getMobileWorkspaceSnapshot,
+  subscribeMobileSyncEvents
+} from '../mobileSync/mobileSyncIpc'
 import { getApiKeyStore } from '../apiKeys/apiKeyIpc'
 import { WORKSPACE_METADATA_CHANNEL } from '@shared/workspaceMetadata'
 
@@ -158,12 +162,20 @@ function workspaceMetadataPath(): string {
   return join(app.getPath('userData'), 'workspace-metadata.json')
 }
 
-function applyWorkspaceMetadataToRenderer(payload: unknown): Promise<{ ok: true }> {
+function applyWorkspaceMetadataToRenderer(payload: unknown): Promise<Record<string, unknown>> {
   // Persist so a browser that opens later (or was offline during the push)
   // still starts with the local workspace's group names and bot names.
   writeFileSync(workspaceMetadataPath(), JSON.stringify(payload, null, 2), { mode: 0o600 })
   broadcastEvent(WORKSPACE_METADATA_CHANNEL, [payload])
-  return Promise.resolve({ ok: true })
+  // The mirrored snapshot is what REST clients read, and it only moves when a
+  // browser pushes one. Apply the patch to the server copy as well so the
+  // names and groups are visible without an open browser tab.
+  try {
+    return Promise.resolve({ ok: true, ...applyMobileWorkspaceMetadataPatch(payload) })
+  } catch (error) {
+    console.error('[web] workspace metadata patch failed', serializeError(error))
+    return Promise.resolve({ ok: true })
+  }
 }
 
 function sendText(res: ServerResponse, status: number, body: string, contentType: string): void {

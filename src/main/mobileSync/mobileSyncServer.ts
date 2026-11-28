@@ -207,6 +207,14 @@ export class MobileSyncServer {
     }
   }
 
+  private persistNow(): void {
+    if (this.snapshotSaveTimer) {
+      clearTimeout(this.snapshotSaveTimer)
+      this.snapshotSaveTimer = null
+    }
+    this.writeSnapshotToDisk()
+  }
+
   private loadDevicesFromDisk(): void {
     if (!this.options.storePath) return
     const file = readJsonFile<StoredDeviceFile>(
@@ -487,6 +495,18 @@ export class MobileSyncServer {
       updatedAtMs: Date.now()
     }
     this.scheduleSnapshotSave()
+    this.broadcastLiveEvent({ type: 'snapshot', snapshot: this.latestSnapshot })
+  }
+
+  /** Store a server-side metadata patch on top of the current snapshot. */
+  applySnapshotPatch(snapshot: MobileWorkspaceSnapshot): void {
+    this.latestSnapshot = {
+      ...snapshot,
+      version: 1,
+      hostName: this.hostLabel,
+      updatedAtMs: Date.now()
+    }
+    this.persistNow()
     this.broadcastLiveEvent({ type: 'snapshot', snapshot: this.latestSnapshot })
   }
 
